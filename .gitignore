@@ -1,0 +1,8 @@
+node_modules/
+dist/
+data/doc.json
+data/snapshots/
+data/*.db
+data/*.db-*
+*.log
+.zcode/

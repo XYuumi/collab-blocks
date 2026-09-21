@@ -1,0 +1,19 @@
+{
+  "name": "collab-editor",
+  "private": true,
+  "version": "1.0.0",
+  "description": "基于 DOM 渲染的块结构协同编辑器（面试作品）",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm:dev -w server\" \"npm:dev -w client\"",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server",
+    "test": "npm test -w server && npm test -w client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
