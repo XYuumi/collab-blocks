@@ -14,7 +14,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import type { BlockType, DocSnapshot } from "../../shared/protocol";
+import type { BlockData, BlockType, DocSnapshot } from "../../shared/protocol";
 import { USER_COLORS } from "../../shared/protocol";
 import type { DocState, SrvBlock } from "./engine";
 
@@ -321,11 +321,11 @@ export class Store {
     }));
   }
 
-  /** 创建文档（仅注册用户）：首个块为 h1 标题 */
-  createDoc(ownerId: string, title: string): { docId: string; title: string } {
+  /** 创建文档（仅注册用户）：可选初始块（Markdown 导入）；缺省首个块为 h1 标题 */
+  createDoc(ownerId: string, title: string, initial?: BlockData[]): { docId: string; title: string } {
     const docId = crypto.randomUUID();
     const safeTitle = title.trim().slice(0, 60) || "未命名文档";
-    const blocks = [{ id: crypto.randomUUID(), type: "h1" as const, text: safeTitle }];
+    const blocks = initial && initial.length > 0 ? initial : [{ id: crypto.randomUUID(), type: "h1" as const, text: safeTitle }];
     this.db
       .prepare(
         "INSERT INTO docs (doc_id, version, structure_version, data, owner_id, title, enforce_owner_edit, updated_at) VALUES (?, 0, 0, ?, ?, ?, 0, ?)",

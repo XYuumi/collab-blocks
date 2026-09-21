@@ -95,9 +95,31 @@ export class Comments {
     this.list.push(comment);
     if (comment.userId !== this.myUserId) {
       this.toast(`${comment.name} 评论了「${this.snippet(comment.blockId)}」`, "info");
+      this.notify(comment);
     }
     this.stats();
     if (this.panel) this.render();
+  }
+
+  /** 桌面通知：仅当已授权、开关开启且页面处于后台时（前台已有 Toast） */
+  private notify(comment: CommentData) {
+    try {
+      if (typeof Notification === "undefined") return;
+      if (Notification.permission !== "granted") return;
+      if (localStorage.getItem("ce-notify") === "0") return;
+      if (!document.hidden) return;
+      const n = new Notification(`💬 ${comment.name} 评论了你`, {
+        body: comment.body.slice(0, 80),
+        tag: `comment-${comment.id}`,
+      });
+      n.onclick = () => {
+        window.focus();
+        this.open(comment.blockId);
+        n.close();
+      };
+    } catch {
+      /* 通知不可用则静默 */
+    }
   }
 
   async add(blockId: string, body: string) {
@@ -183,6 +205,30 @@ export class Comments {
     const head = document.createElement("div");
     head.className = "comments-head";
     head.innerHTML = `<b>评论</b>`;
+    const notifyBtn = document.createElement("button");
+    notifyBtn.className = "btn comments-notify";
+    const syncNotifyBtn = () => {
+      const off = localStorage.getItem("ce-notify") === "0";
+      notifyBtn.textContent = off ? "🔕" : "🔔";
+      notifyBtn.title = off ? "桌面通知已关，点击开启" : "桌面通知已开，点击关闭";
+    };
+    syncNotifyBtn();
+    notifyBtn.addEventListener("click", async () => {
+      if (localStorage.getItem("ce-notify") === "0") {
+        localStorage.setItem("ce-notify", "1");
+      } else if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
+        const p = await Notification.requestPermission();
+        if (p !== "granted") {
+          this.toast("未获得通知授权，可在浏览器地址栏设置中开启", "warn");
+          return;
+        }
+        localStorage.setItem("ce-notify", "1");
+      } else {
+        localStorage.setItem("ce-notify", localStorage.getItem("ce-notify") === "0" ? "1" : "0");
+      }
+      syncNotifyBtn();
+    });
+    head.appendChild(notifyBtn);
     const closeBtn = document.createElement("button");
     closeBtn.className = "btn comments-close";
     closeBtn.textContent = "×";

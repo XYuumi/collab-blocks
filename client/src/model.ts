@@ -120,7 +120,7 @@ export class DocModel {
         // serverText 保留（服务器要等 ack 才删；回滚/对账都要用）
         this.applyOpToBlocks(op);
         structural = true;
-      } else if (op.type === "block.update" || op.type === "doc.replace") {
+      } else if (op.type === "block.update" || op.type === "doc.replace" || op.type === "block.move") {
         this.applyOpToBlocks(op);
         structural = true;
       } else {
@@ -151,6 +151,14 @@ export class DocModel {
       if (b) {
         if (op.blockType !== undefined) b.type = op.blockType;
         if (op.checked !== undefined) b.checked = op.checked;
+      }
+    } else if (op.type === "block.move") {
+      const i = this.blockIndex(op.id);
+      if (i >= 0) {
+        const [b] = this.blocks.splice(i, 1);
+        const anchor = op.beforeId ? this.blockIndex(op.beforeId) : -2;
+        const at = anchor === -2 || anchor === -1 ? this.blocks.length : anchor;
+        this.blocks.splice(at, 0, b);
       }
     } else if (op.type === "doc.replace") {
       // 快照恢复：整块替换可见状态（serverText 由调用点同步维护）
@@ -405,6 +413,11 @@ export class DocModel {
     }
     if (op.type === "block.update") {
       if (!this.block(op.id)) return null; // 目标块已消失
+      return op;
+    }
+    if (op.type === "block.move") {
+      if (!this.block(op.id)) return "skip"; // 块已消失，语义上无需移动
+      if (op.beforeId && !this.block(op.beforeId)) return { ...op, beforeId: null }; // 锚点没了 → 末尾
       return op;
     }
     if (op.type === "doc.replace") {

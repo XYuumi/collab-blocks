@@ -199,3 +199,29 @@ test("block.update：修改类型/勾选，参与块级 CAS", () => {
   const r2 = e.submit(tx(e, "u2", [{ type: "block.update", id: "missing", blockType: "h2" }]));
   assert.ok(!r2.ok && r2.reason === "CONFLICT");
 });
+
+
+test("block.move：重排生效、幂等重放、锚点缺失退化为末尾", () => {
+  const e = makeEngine();
+  const mk = (ids: string[]) => e.submit(tx(e, "u1", ids.map((id, i) => ({ type: "block.insert" as const, id, afterId: i === 0 ? null : ids[i - 1], text: id })), `ins-${ids.join("")}`));
+  mk(["a", "b", "c"]);
+  assert.deepEqual(e.state.blocks.map((b) => b.id), ["b1", "b2", "a", "b", "c"]);
+  // c 移到最前（beforeId=首块）
+  const r = e.submit(tx(e, "u1", [{ type: "block.move", id: "c", beforeId: "b1", undoBeforeId: null }]));
+  assert.ok(r.ok);
+  assert.deepEqual(e.state.blocks.map((b) => b.id), ["c", "b1", "b2", "a", "b"]);
+  // 幂等重放：同 txId 不再变化
+  const r2 = e.submit(tx(e, "u1", [{ type: "block.move", id: "c", beforeId: "b1", undoBeforeId: null }]));
+  assert.ok(r2.ok);
+  assert.deepEqual(e.state.blocks.map((b) => b.id), ["c", "b1", "b2", "a", "b"]);
+  // 锚点缺失 → 退化为末尾
+  e.submit(tx(e, "u1", [{ type: "block.move", id: "a", beforeId: "ghost" }]));
+  assert.deepEqual(e.state.blocks.map((b) => b.id), ["c", "b1", "b2", "b", "a"]);
+  // beforeId=null → 末尾
+  e.submit(tx(e, "u1", [{ type: "block.move", id: "c", beforeId: null }]));
+  assert.deepEqual(e.state.blocks.map((b) => b.id), ["b1", "b2", "b", "a", "c"]);
+  // 目标块不存在 → no-op
+  const r3 = e.submit(tx(e, "u1", [{ type: "block.move", id: "ghost", afterId: null }]));
+  assert.ok(r3.ok);
+  assert.equal(e.state.blocks.length, 5);
+});

@@ -56,9 +56,16 @@ export async function openShareModal(opts: {
       <p class="share-hint">拿到编辑链接的人可以编辑；拿到只读链接的人只能查看（实时同步）。</p>
       ${
         isOwner
-          ? `<label class="share-toggle"><input type="checkbox" class="share-enforce" ${enforce ? "checked" : ""}/> 仅创建者可编辑（协作者名单内的人除外）</label>
+          ? `<div class="share-access">
+               <div class="share-access-label">编辑权限</div>
+               <div class="share-seg">
+                 <button type="button" class="share-seg-item ${!enforce ? "active" : ""}" data-mode="open">开放编辑</button>
+                 <button type="button" class="share-seg-item ${enforce ? "active" : ""}" data-mode="restricted">受限编辑</button>
+               </div>
+               <div class="share-access-desc"></div>
+             </div>
              <div class="share-collab">
-               <div class="share-collab-head">协作者名单（开启上面开关后，名单内的人仍可编辑）</div>
+               <div class="share-collab-head">协作者名单（受限编辑模式下，名单内的人仍可编辑）</div>
                <div class="share-collab-list"></div>
                <div class="share-collab-add">
                  <input class="share-collab-input" placeholder="按用户名邀请…" maxlength="24" />
@@ -101,16 +108,35 @@ export async function openShareModal(opts: {
   bindCopy(".share-copy-edit", () => editUrl, "编辑链接");
   bindCopy(".share-copy-ro", () => roUrl, "只读链接");
 
-  const enforceBox = box.querySelector<HTMLInputElement>(".share-enforce");
-  enforceBox?.addEventListener("change", async () => {
-    enforce = enforceBox.checked;
-    const res = await fetch(`/api/docs/${docId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-      body: JSON.stringify({ enforceOwnerEdit: enforce }),
+  // 两档权限选择器：开放编辑（任何人）/ 受限编辑（仅创建者与协作者）
+  const descEl = box.querySelector<HTMLElement>(".share-access-desc");
+  const syncAccessUI = () => {
+    descEl!.textContent = enforce
+      ? "仅创建者与协作者名单内的人可编辑，其他人（含访客）打开编辑链接也是只读。"
+      : "拿到编辑链接的任何人（含访客）都可编辑；只读链接的人始终只读。";
+    box.querySelectorAll<HTMLButtonElement>(".share-seg-item").forEach((b) => {
+      b.classList.toggle("active", (b.dataset.mode === "restricted") === enforce);
     });
-    if (res.ok) onToast(enforce ? "已开启：仅创建者与协作者可编辑" : "已关闭：拿到编辑链接的人都可编辑", "info");
-    else onToast("设置失败", "error");
+  };
+  syncAccessUI();
+  box.querySelectorAll<HTMLButtonElement>(".share-seg-item").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const want = b.dataset.mode === "restricted";
+      if (want === enforce) return;
+      enforce = want;
+      syncAccessUI();
+      const res = await fetch(`/api/docs/${docId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ enforceOwnerEdit: enforce }),
+      });
+      if (res.ok) onToast(enforce ? "已切换为受限编辑：仅创建者与协作者" : "已切换为开放编辑：任何人都可编辑", "info");
+      else {
+        enforce = !enforce;
+        syncAccessUI();
+        onToast("设置失败", "error");
+      }
+    });
   });
 
   // ---------------- 协作者名单（创建者） ----------------

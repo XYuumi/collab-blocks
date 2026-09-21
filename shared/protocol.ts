@@ -117,7 +117,17 @@ export interface DocReplaceOp {
   prevBlocks?: BlockData[];
 }
 
-export type Op = BlockInsertOp | BlockDeleteOp | BlockUpdateOp | TextInsertOp | TextDeleteOp | DocReplaceOp;
+/** 块移动（拖拽排序）：把块移到 beforeId 指定的块之前；null = 移到文档末尾。
+ *  用 beforeId 而非 afterId：才能表达"移到最前"（afterId:null 已被占用为末尾）。 */
+export interface BlockMoveOp {
+  type: "block.move";
+  id: string;
+  beforeId: string | null;
+  /** undo 上下文：移动前位于其后面的块 id（null=原本在末尾），服务端忽略 */
+  undoBeforeId?: string | null;
+}
+
+export type Op = BlockInsertOp | BlockDeleteOp | BlockUpdateOp | BlockMoveOp | TextInsertOp | TextDeleteOp | DocReplaceOp;
 export type TextOp = TextInsertOp | TextDeleteOp;
 
 export interface Tx {

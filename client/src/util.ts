@@ -119,6 +119,8 @@ export function invertOp(op: Op): Op {
           : {}),
         ...(op.checked !== undefined ? { checked: op.prevChecked ?? false, prevChecked: op.checked } : {}),
       };
+    case "block.move":
+      return { type: "block.move", id: op.id, beforeId: op.undoBeforeId ?? null, undoBeforeId: op.beforeId };
     case "doc.replace":
       return {
         type: "doc.replace",

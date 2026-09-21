@@ -168,6 +168,17 @@ export class DocEngine {
           structural = true;
           break;
         }
+        case "block.move": {
+          const b = findBlock(op.id);
+          if (!b) break; // 块不存在：no-op
+          working.splice(working.indexOf(b), 1);
+          const anchor = op.beforeId ? findBlock(op.beforeId) : undefined;
+          const idx = anchor ? working.indexOf(anchor) : working.length; // 锚点缺失 → 末尾
+          working.splice(idx, 0, b);
+          touched.add(op.id);
+          structural = true;
+          break;
+        }
         case "block.update": {
           const b = findBlock(op.id);
           if (!b) return this.conflict(conflicts); // 块已被他人删除

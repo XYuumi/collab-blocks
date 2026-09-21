@@ -66,6 +66,59 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+/** Markdown 导入：逐行解析为块数组（标题/列表/待办/代码围栏），id 由调用方生成 */
+export function markdownToBlocks(md: string, genId: () => string): BlockData[] {
+  const lines = md.replace(/\r\n?/g, "\n").split("\n");
+  const blocks: BlockData[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // 代码围栏
+    if (/^\s*```/.test(line)) {
+      const buf: string[] = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]);
+      i++; // 跳过闭合围栏
+      blocks.push({ id: genId(), type: "code", text: buf.join("\n") });
+      continue;
+    }
+    // 标题
+    const h = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (h) {
+      const type = (["h1", "h2", "h3"] as const)[h[1].length - 1];
+      blocks.push({ id: genId(), type, text: h[2] });
+      i++;
+      continue;
+    }
+    // 待办
+    const todo = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(line);
+    if (todo) {
+      blocks.push({ id: genId(), type: "todo", text: todo[2], checked: todo[1].toLowerCase() === "x" });
+      i++;
+      continue;
+    }
+    // 列表
+    const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
+    if (bullet) {
+      blocks.push({ id: genId(), type: "bullet", text: bullet[1] });
+      i++;
+      continue;
+    }
+    // 空行跳过
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+    // 段落（连续非空行合并）
+    const buf: string[] = [line];
+    i++;
+    while (i < lines.length && lines[i].trim() && !/^\s*(```|#{1,3}\s|[-*+]\s)/.test(lines[i])) buf.push(lines[i++]);
+    blocks.push({ id: genId(), type: "text", text: buf.join("\n") });
+  }
+  if (blocks.length === 0) blocks.push({ id: genId(), type: "text", text: "" });
+  return blocks;
+}
+
 /** HTML 导出：语义化标签 + 转义（图片块输出 img，data URL 内联） */
 export function blocksToHtml(title: string, blocks: BlockData[]): string {
   const body = blocks

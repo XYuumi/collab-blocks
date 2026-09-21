@@ -184,6 +184,22 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
     tools.appendChild(b);
     return b;
   };
+  const undoBtn = mkBtn(
+    `<svg viewBox="0 0 24 24"><path d="M8.5 13.5 4 9l4.5-4.5"/><path d="M4 9h9.5a6 6 0 1 1 0 12H8"/></svg>`,
+    "撤销（Ctrl+Z）",
+    "icon-btn",
+  );
+  const redoBtn = mkBtn(
+    `<svg viewBox="0 0 24 24"><path d="M15.5 13.5 20 9l-4.5-4.5"/><path d="M20 9h-9.5a6 6 0 1 0 0 12H16"/></svg>`,
+    "重做（Ctrl+Y）",
+    "icon-btn",
+  );
+  undoBtn.addEventListener("click", () => editor.undo());
+  redoBtn.addEventListener("click", () => editor.redo());
+  const syncUndoBtns = () => {
+    undoBtn.disabled = !editor.canUndo();
+    redoBtn.disabled = !editor.canRedo();
+  };
   const searchBtn = mkBtn(
     `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`,
     "全文搜索（Ctrl+F）",
@@ -459,6 +475,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
     status.setVersion(model.version, queue.pendingCount());
     status.setStats(model.blocks.reduce((n, b) => n + b.text.length, 0));
     savePendingSoon();
+    syncUndoBtns();
   });
 
   net.onStateChange = (s) => {

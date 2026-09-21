@@ -3,6 +3,8 @@
  * 纯 REST 页面（无 WebSocket）；访客显示登录引导（访客通过分享链接参与编辑）。
  */
 import { getToken, openAuthModal, logout } from "./auth";
+import { markdownToBlocks } from "./markdown";
+import { uuid } from "@shared/protocol";
 
 interface DocMeta {
   docId: string;
@@ -36,10 +38,27 @@ export async function mountHome(root: HTMLElement) {
   main.className = "home-main";
   page.appendChild(main);
 
+  /** 顶栏"介绍"重开按钮（介绍被收起时显示；幂等） */
+  const mountReopen = () => {
+    if (localStorage.getItem("ce-intro-dismissed") !== "1") return;
+    if (header.querySelector(".home-intro-reopen")) return;
+    const re = document.createElement("button");
+    re.className = "btn home-intro-reopen";
+    re.textContent = "ⓘ 介绍";
+    re.title = "查看产品介绍";
+    re.addEventListener("click", () => {
+      localStorage.removeItem("ce-intro-dismissed");
+      location.reload();
+    });
+    header.appendChild(re);
+  };
+
   const renderHeader = (logged: boolean, name?: string) => {
     header.innerHTML = `
       <div class="brand">协同编辑器<span class="brand-sub">Collab Editor</span></div>
       <div class="spacer"></div>`;
+    // 介绍被收起时，顶栏保留重新展开的入口
+    if (logged) mountReopen();
     if (logged) {
       const chip = document.createElement("span");
       chip.className = "user-chip";
@@ -95,6 +114,7 @@ export async function mountHome(root: HTMLElement) {
     dismiss.addEventListener("click", () => {
       intro.remove();
       localStorage.setItem("ce-intro-dismissed", "1");
+      mountReopen();
     });
     head.appendChild(dismiss);
     intro.appendChild(head);
@@ -136,6 +156,37 @@ export async function mountHome(root: HTMLElement) {
   trashBtn.textContent = "回收站";
   trashBtn.title = "删除的文档保留 7 天";
   bar.appendChild(trashBtn);
+  const importBtn = document.createElement("button");
+  importBtn.className = "btn home-import";
+  importBtn.textContent = "⇪ 导入 Markdown";
+  importBtn.title = "上传 .md 文件生成新文档（标题/列表/待办/代码块）";
+  bar.appendChild(importBtn);
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = ".md,.markdown,text/markdown";
+  fileInput.style.display = "none";
+  bar.appendChild(fileInput);
+  importBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const blocks = markdownToBlocks(text, () => uuid());
+      const first = blocks[0];
+      const title = first && (first.type === "h1" || first.type === "h2" || first.type === "h3") ? first.text : file.name.replace(/\.(md|markdown)$/i, "");
+      const r = await fetch("/api/docs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ title, blocks }),
+      });
+      const created = (await r.json()) as { docId?: string; error?: string };
+      if (created.docId) location.href = `/d/${created.docId}`;
+      else alert(created.error ?? "导入失败");
+    } catch {
+      alert("读取文件失败");
+    }
+  });
   const newBtn = document.createElement("button");
   newBtn.className = "btn home-new";
   newBtn.textContent = "＋ 新建文档";

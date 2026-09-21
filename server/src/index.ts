@@ -14,6 +14,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { DOC_ID } from "../../shared/protocol";
+import { randomUUID } from "node:crypto";
 import { DocManager } from "./docmanager";
 import { Hub } from "./hub";
 import { Store, seedDoc, StoreError } from "./store";
@@ -139,8 +140,27 @@ export function buildServer(dbPath?: string): AppServer {
       res.status(403).json({ error: "访客不能创建文档，请先注册登录" });
       return;
     }
-    const { title } = req.body ?? {};
-    const created = store.createDoc(user.id, typeof title === "string" ? title : "未命名文档");
+    const { title, blocks } = req.body ?? {};
+    // blocks：Markdown 导入等场景的初始内容（校验形状与规模，id 服务端补齐）
+    let initial: import("../../shared/protocol").BlockData[] | null = null;
+    if (Array.isArray(blocks)) {
+      if (blocks.length > 2000) {
+        res.status(400).json({ error: "内容过大（最多 2000 块）" });
+        return;
+      }
+      initial = blocks
+        .filter((b: unknown) => b && typeof b === "object")
+        .slice(0, 2000)
+        .map((b: { id?: unknown; type?: unknown; text?: unknown; checked?: unknown }) => ({
+          id: typeof b.id === "string" && b.id ? b.id : randomUUID(),
+          type: (["text", "h1", "h2", "h3", "bullet", "todo", "code", "image"] as const).includes(b.type as never)
+            ? (b.type as import("../../shared/protocol").BlockType)
+            : "text",
+          text: typeof b.text === "string" ? b.text.slice(0, 100_000) : "",
+          ...(b.checked === true ? { checked: true } : {}),
+        }));
+    }
+    const created = store.createDoc(user.id, typeof title === "string" ? title : "未命名文档", initial ?? undefined);
     res.json({ docId: created.docId, title: created.title });
   });
 

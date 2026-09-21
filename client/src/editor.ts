@@ -154,6 +154,55 @@ export class Editor {
   private slash: { blockId: string; el: HTMLElement; active: number } | null = null;
   /** 只读模式（viewer / 只读链接）：禁一切编辑入口 */
   readOnly = false;
+  /** 正在拖拽的块 id */
+  private draggingId: string | null = null;
+  private dropLine: HTMLElement | null = null;
+
+  /** 某块当前后面的块 id（null=末尾） */
+  private nextIdOf(id: string): string | null {
+    const i = this.model.blockIndex(id);
+    return i >= 0 && i < this.model.blocks.length - 1 ? this.model.blocks[i + 1].id : null;
+  }
+
+  /** 依据指针位置计算落点：目标块上半=移到其前(beforeId=目标)，下半=移到其后(beforeId=目标的下一块) */
+  private dropPlan(target: HTMLElement | null, clientY: number): { beforeId: string | null } | null {
+    if (!target?.dataset.id) return null;
+    const targetId = target.dataset.id;
+    if (targetId === this.draggingId) return null;
+    const rect = target.getBoundingClientRect();
+    const before = clientY < rect.top + rect.height / 2;
+    if (before) return { beforeId: targetId };
+    return { beforeId: this.nextIdOf(targetId) };
+  }
+
+  private updateDropIndicator(target: HTMLElement | null, clientY: number) {
+    const plan = this.dropPlan(target, clientY);
+    this.clearDropIndicator();
+    if (!plan || !target) return;
+    const host = this.container.getBoundingClientRect();
+    const anchorEl = plan.beforeId ? this.nodes.get(plan.beforeId) : null;
+    const line = document.createElement("div");
+    line.className = "drop-indicator";
+    if (anchorEl) {
+      const ar = anchorEl.getBoundingClientRect();
+      line.style.left = `${ar.left}px`;
+      line.style.width = `${ar.width}px`;
+      line.style.top = `${ar.top - host.top - 2}px`;
+    } else {
+      const lastWrap = this.nodes.get(this.model.blocks[this.model.blocks.length - 1]?.id ?? "");
+      const r = (lastWrap ?? target).getBoundingClientRect();
+      line.style.left = `${r.left}px`;
+      line.style.width = `${r.width}px`;
+      line.style.top = `${r.bottom - host.top + 1}px`;
+    }
+    this.container.appendChild(line);
+    this.dropLine = line;
+  }
+
+  private clearDropIndicator() {
+    this.dropLine?.remove();
+    this.dropLine = null;
+  }
 
   setReadOnly(v: boolean) {
     this.readOnly = v;
@@ -312,6 +361,25 @@ export class Editor {
       wrap.prepend(cb);
     }
 
+    // 拖拽把手（悬停左侧显示；非只读时可拖动排序）
+    if (!this.readOnly) {
+      const handle = document.createElement("div");
+      handle.className = "block-drag-handle";
+      handle.textContent = "⠿";
+      handle.title = "拖动排序";
+      handle.draggable = true;
+      handle.addEventListener("dragstart", (e) => {
+        this.draggingId = id;
+        e.dataTransfer?.setData("text/plain", id);
+        e.dataTransfer && (e.dataTransfer.effectAllowed = "move");
+      });
+      handle.addEventListener("dragend", () => {
+        this.draggingId = null;
+        this.clearDropIndicator();
+      });
+      wrap.appendChild(handle);
+    }
+
     const idChip = document.createElement("span");
     idChip.className = "block-id";
     idChip.textContent = `#${id.slice(0, 4)}`;
@@ -416,6 +484,35 @@ export class Editor {
     this.el.addEventListener("paste", (e) => this.onPaste(e));
     this.el.addEventListener("dragover", (e) => e.preventDefault());
     this.el.addEventListener("drop", (e) => e.preventDefault()); // 拖放不接入模型，避免富文本 DOM
+
+    // 拖拽排序：dragover 计算落点（前/后），drop 提交 block.move
+    this.el.addEventListener("dragover", (e) => {
+      if (!this.draggingId) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      const target = (e.target as HTMLElement).closest<HTMLElement>(".block");
+      this.updateDropIndicator(target, e.clientY);
+    });
+    this.el.addEventListener("drop", (e) => {
+      if (!this.draggingId) return;
+      e.preventDefault();
+      const target = (e.target as HTMLElement).closest<HTMLElement>(".block");
+      const plan = this.dropPlan(target, e.clientY);
+      this.clearDropIndicator();
+      const id = this.draggingId;
+      this.draggingId = null;
+      if (!id || !plan) return;
+      if (plan.beforeId === id) return; // 拖到自己前 = 原位
+      if ((plan.beforeId ?? null) === (this.nextIdOf(id) ?? null)) return; // 没动
+      this.queue.submitImmediate(
+        [{ type: "block.move", id, beforeId: plan.beforeId, undoBeforeId: this.nextIdOf(id) ?? null }],
+        { selBefore: null },
+      );
+    });
+    this.el.addEventListener("dragleave", (e) => {
+      if (!this.draggingId) return;
+      if (e.target === this.el) this.clearDropIndicator();
+    });
 
     this.el.addEventListener("focusin", (e) => {
       const target = (e.target as HTMLElement).closest<HTMLElement>(".block-text");
@@ -908,6 +1005,14 @@ export class Editor {
   }
 
   // ------------------------------------------------------------- 撤销/重做
+
+  canUndo(): boolean {
+    return !this.readOnly && this.undoMgr.canUndo();
+  }
+
+  canRedo(): boolean {
+    return !this.readOnly && this.undoMgr.canRedo();
+  }
 
   undo() {
     if (this.readOnly) return;
