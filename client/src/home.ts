@@ -80,12 +80,21 @@ export async function mountHome(root: HTMLElement) {
   const me = payload.user?.isGuest ? `${payload.user.name}（访客）` : payload.user?.name ?? "我";
   renderHeader(true, me);
 
-  // 新建
+  // 新建 + 回收站
   const bar = document.createElement("div");
   bar.className = "home-bar";
-  bar.innerHTML = `<button class="btn home-new">＋ 新建文档</button>`;
+  bar.innerHTML = `<span class="home-bar-spacer"></span>`;
+  const trashBtn = document.createElement("button");
+  trashBtn.className = "btn home-trash";
+  trashBtn.textContent = "回收站";
+  trashBtn.title = "删除的文档保留 7 天";
+  bar.appendChild(trashBtn);
+  const newBtn = document.createElement("button");
+  newBtn.className = "btn home-new";
+  newBtn.textContent = "＋ 新建文档";
+  bar.appendChild(newBtn);
   main.appendChild(bar);
-  bar.querySelector(".home-new")!.addEventListener("click", async () => {
+  newBtn.addEventListener("click", async () => {
     const title = prompt("文档标题", "未命名文档");
     if (title === null) return;
     const r = await fetch("/api/docs", {
@@ -97,6 +106,7 @@ export async function mountHome(root: HTMLElement) {
     if (created.docId) location.href = `/d/${created.docId}`;
     else alert(created.error ?? "创建失败");
   });
+  trashBtn.addEventListener("click", () => void openTrash());
 
   const list = document.createElement("div");
   list.className = "home-list";
@@ -157,5 +167,65 @@ export async function mountHome(root: HTMLElement) {
     empty.className = "home-empty";
     empty.textContent = "还没有文档，点上面的「新建文档」开始";
     list.appendChild(empty);
+  }
+
+  // ---------------- 回收站（7 天保留） ----------------
+  async function openTrash() {
+    document.querySelector(".trash-modal")?.remove();
+    const mask = document.createElement("div");
+    mask.className = "modal-mask trash-modal";
+    const box = document.createElement("div");
+    box.className = "auth-modal trash-box";
+    box.innerHTML = `<div class="share-head"><b>回收站</b><button class="btn trash-close">关闭</button></div><div class="trash-body"><p class="share-hint">删除的文档保留 7 天，之后自动彻底清除。</p></div>`;
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+    box.querySelector(".trash-close")!.addEventListener("click", () => mask.remove());
+    mask.addEventListener("click", (e) => {
+      if (e.target === mask) mask.remove();
+    });
+    const body = box.querySelector(".trash-body")!;
+    try {
+      const res = await fetch("/api/docs/trash/list", { headers: { Authorization: `Bearer ${getToken()}` } });
+      const { docs: trashed } = (await res.json()) as { docs: { docId: string; title: string; deletedAt: number }[] };
+      if (trashed.length === 0) {
+        body.innerHTML += `<p class="home-empty">回收站是空的</p>`;
+        return;
+      }
+      for (const t of trashed) {
+        const row = document.createElement("div");
+        row.className = "trash-row";
+        const info = document.createElement("div");
+        info.className = "trash-info";
+        info.innerHTML = `<b></b><span>${new Date(t.deletedAt).toLocaleString()} 删除</span>`;
+        info.querySelector("b")!.textContent = t.title || "未命名文档";
+        const restore = document.createElement("button");
+        restore.className = "btn";
+        restore.textContent = "恢复";
+        restore.addEventListener("click", async () => {
+          const r = await fetch(`/api/docs/${t.docId}/restore`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } });
+          if (r.ok) {
+            row.remove();
+            location.reload();
+          } else {
+            alert(((await r.json()) as { error?: string }).error ?? "恢复失败");
+          }
+        });
+        const purge = document.createElement("button");
+        purge.className = "btn home-del";
+        purge.textContent = "彻底删除";
+        purge.addEventListener("click", async () => {
+          if (!confirm(`彻底删除「${t.title}」？不可恢复。`)) return;
+          const r = await fetch(`/api/docs/${t.docId}/purge`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } });
+          if (r.ok) row.remove();
+          else alert("删除失败");
+        });
+        row.appendChild(info);
+        row.appendChild(restore);
+        row.appendChild(purge);
+        body.appendChild(row);
+      }
+    } catch {
+      body.innerHTML += `<p class="home-empty">加载失败</p>`;
+    }
   }
 }

@@ -25,12 +25,14 @@ export interface LockRenderInfo {
 }
 
 export interface EditorHooks {
-  onCursor: (blockId: string, offset: number) => void;
+  onCursor: (blockId: string, offset: number, focusOffset?: number) => void;
   onFocusBlock: (blockId: string) => void;
   onBlurBlock: (blockId: string) => void;
   onStructureChanged: () => void;
   /** 轻提示（块 ID 复制等），可选 */
   onToast?: (msg: string, kind?: "info" | "warn" | "error") => void;
+  /** 点击块上的评论气泡（可选） */
+  onOpenComments?: (blockId: string) => void;
 }
 
 export interface SlashItem {
@@ -105,36 +107,31 @@ export function setCaretOffset(el: HTMLElement, offset: number) {
   sel.addRange(range);
 }
 
-/** 指定块内某 offset 的屏幕矩形（远程光标/菜单定位用；行尾/空块有兜底） */
-export function rectAtOffset(el: HTMLElement, offset: number): DOMRect | null {
-  const range = document.createRange();
+/** 在块内定位 offset → (文本节点, 节点内偏移)；越界落到末尾 */
+function locate(el: HTMLElement, offset: number): { node: Text | null; local: number } {
   let remaining = offset;
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   let node: Node | null;
-  let lastText: Text | null = null;
-  let local = 0;
-  let target: Text | null = null;
+  let last: Text | null = null;
   while ((node = walker.nextNode())) {
     const t = node as Text;
-    lastText = t;
-    if (t.length >= remaining) {
-      target = t;
-      local = remaining;
-      break;
-    }
+    last = t;
+    if (t.length >= remaining) return { node: t, local: remaining };
     remaining -= t.length;
   }
-  if (target) {
-    range.setStart(target, local);
+  return { node: last, local: last ? last.length : 0 };
+}
+
+/** 指定块内某 offset 的屏幕矩形（远程光标/菜单定位用；行尾/空块有兜底） */
+export function rectAtOffset(el: HTMLElement, offset: number): DOMRect | null {
+  const range = document.createRange();
+  const { node, local } = locate(el, offset);
+  if (node) {
+    range.setStart(node, local);
     range.collapse(true);
   } else {
-    if (lastText) {
-      range.setStart(lastText, lastText.length);
-      range.collapse(true);
-    } else {
-      range.selectNodeContents(el);
-      range.collapse(true);
-    }
+    range.selectNodeContents(el);
+    range.collapse(true);
   }
   const rect = range.getBoundingClientRect();
   if (rect.width === 0 && rect.height === 0) {
@@ -151,6 +148,8 @@ export class Editor {
   private nodes = new Map<string, HTMLElement>(); // blockId → .block（外层容器）
   private composingBlockId: string | null = null;
   lockInfoProvider: ((blockId: string) => LockRenderInfo | undefined) | null = null;
+  /** 评论计数提供者：块 → 未解决评论数（0 隐藏气泡） */
+  commentsProvider: ((blockId: string) => number) | null = null;
   /** "/" 唤起的块类型菜单状态 */
   private slash: { blockId: string; el: HTMLElement; active: number } | null = null;
   /** 只读模式（viewer / 只读链接）：禁一切编辑入口 */
@@ -230,7 +229,32 @@ export class Editor {
     }
     this.closeSlashMenu();
     this.renderLocks();
+    this.renderCommentChips();
     this.hooks.onStructureChanged();
+  }
+
+  /** 渲染块上的 💬 评论气泡（未解决评论数） */
+  renderCommentChips() {
+    if (!this.commentsProvider) return;
+    for (const [id, wrap] of this.nodes) {
+      let chip = wrap.querySelector<HTMLElement>(".block-comments-chip");
+      const n = this.commentsProvider(id);
+      if (n > 0) {
+        if (!chip) {
+          chip = document.createElement("button");
+          chip.className = "block-comments-chip";
+          chip.title = "查看该块的评论";
+          chip.addEventListener("mousedown", (e) => {
+            e.preventDefault(); // 不抢编辑焦点
+            this.hooks.onOpenComments?.(id);
+          });
+          wrap.appendChild(chip);
+        }
+        chip.textContent = `💬 ${n}`;
+      } else {
+        chip?.remove();
+      }
+    }
   }
 
   private createBlockNode(id: string): HTMLElement {
@@ -290,7 +314,8 @@ export class Editor {
     this.reconcileBlock(blockId);
   }
 
-  private textNodeOf(id: string): HTMLElement | undefined {
+  /** 块内 .block-text 节点（搜索/高亮等外部模块用） */
+  textNodeOf(id: string): HTMLElement | undefined {
     return this.nodes.get(id)?.querySelector<HTMLElement>(".block-text") ?? undefined;
   }
 
@@ -872,5 +897,57 @@ export class Editor {
     const el = this.textNodeOf(blockId);
     if (!el) return null;
     return rectAtOffset(el, offset);
+  }
+
+  /** 远程选区高亮：块内 [start,end) 的逐行矩形（用于叠加层渲染） */
+  rectsForRange(blockId: string, start: number, end: number): DOMRect[] {
+    const el = this.textNodeOf(blockId);
+    if (!el || end <= start) return [];
+    const range = document.createRange();
+    const a = locate(el, start);
+    const b = locate(el, end);
+    if (a.node && b.node) {
+      range.setStart(a.node, a.local);
+      range.setEnd(b.node, b.local);
+    } else {
+      range.selectNodeContents(el);
+    }
+    const rects = [...range.getClientRects()].filter((r) => r.width > 0 || r.height > 0);
+    if (rects.length === 0) {
+      const r = rectAtOffset(el, start);
+      return r ? [r] : [];
+    }
+    return rects;
+  }
+
+  /** 当前选区信息（同块内返回 anchor/focus；跨块取 focus 块折叠），用于上报 */
+  currentSelectionInfo(): { blockId: string; offset: number; focusOffset?: number } | null {
+    const sel = getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    const el = (range.commonAncestorContainer as Node).parentElement?.closest<HTMLElement>(".block-text")
+      ?? (document.activeElement as HTMLElement | null)?.closest?.(".block-text");
+    if (!el?.dataset.id) return null;
+    const blockId = el.dataset.id;
+    if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) {
+      // 跨块选区：只上报 focus 端插入点
+      const r2 = sel.focusNode ? (sel.focusNode.parentElement?.closest<HTMLElement>(".block-text") ?? null) : null;
+      if (r2?.dataset.id === blockId) {
+        const off = getCaretOffset(el);
+        return off === null ? null : { blockId, offset: off };
+      }
+      const off = getCaretOffset(el);
+      return off === null ? null : { blockId, offset: off };
+    }
+    const pre = range.cloneRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(range.startContainer, range.startOffset);
+    const anchor = pre.toString().length;
+    const pre2 = range.cloneRange();
+    pre2.selectNodeContents(el);
+    pre2.setEnd(range.endContainer, range.endOffset);
+    const focus = pre2.toString().length;
+    if (anchor === focus) return { blockId, offset: anchor };
+    return { blockId, offset: Math.min(anchor, focus), focusOffset: Math.max(anchor, focus) };
   }
 }

@@ -72,6 +72,17 @@ export class Store {
         created_at INTEGER NOT NULL,
         PRIMARY KEY (doc_id, version)
       );
+      CREATE TABLE IF NOT EXISTS comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id TEXT NOT NULL,
+        block_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        user_name TEXT NOT NULL,
+        user_color TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        resolved INTEGER NOT NULL DEFAULT 0
+      );
     `);
     // 旧库幂等迁移：逐列补齐（已存在则忽略报错）
     for (const col of [
@@ -80,6 +91,7 @@ export class Store {
       "ALTER TABLE docs ADD COLUMN ro_token TEXT",
       "ALTER TABLE docs ADD COLUMN enforce_owner_edit INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE docs ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE docs ADD COLUMN deleted_at INTEGER",
     ]) {
       try {
         this.db.exec(col);
@@ -88,6 +100,7 @@ export class Store {
       }
     }
     this.cleanupOldGuests();
+    this.purgeOldTrash();
   }
 
   close() {
@@ -228,7 +241,7 @@ export class Store {
   // --------------------------------------------------------------- 文档与快照
 
   loadDoc(docId: string): DocState | null {
-    const row = this.db.prepare("SELECT version, structure_version, data FROM docs WHERE doc_id = ?").get(docId) as
+    const row = this.db.prepare("SELECT version, structure_version, data FROM docs WHERE doc_id = ? AND deleted_at IS NULL").get(docId) as
       | { version: number; structure_version: number; data: string }
       | undefined;
     if (row) {
@@ -269,7 +282,7 @@ export class Store {
 
   getDocMeta(docId: string): { docId: string; ownerId: string | null; title: string; enforceOwnerEdit: boolean; updatedAt: number; version: number } | null {
     const row = this.db
-      .prepare("SELECT doc_id, owner_id, title, enforce_owner_edit, updated_at, version FROM docs WHERE doc_id = ?")
+      .prepare("SELECT doc_id, owner_id, title, enforce_owner_edit, updated_at, version FROM docs WHERE doc_id = ? AND deleted_at IS NULL")
       .get(docId) as
       | { doc_id: string; owner_id: string | null; title: string; enforce_owner_edit: number; updated_at: number; version: number }
       | undefined;
@@ -290,7 +303,7 @@ export class Store {
     return (
       this.db
         .prepare(
-          "SELECT doc_id, owner_id, title, updated_at, version FROM docs WHERE owner_id = ? OR owner_id IS NULL ORDER BY (owner_id = ?) DESC, updated_at DESC",
+          "SELECT doc_id, owner_id, title, updated_at, version FROM docs WHERE deleted_at IS NULL AND (owner_id = ? OR owner_id IS NULL) ORDER BY (owner_id = ?) DESC, updated_at DESC",
         )
         .all(userId, userId) as { doc_id: string; owner_id: string | null; title: string; updated_at: number; version: number }[]
     ).map((r) => ({
@@ -340,12 +353,105 @@ export class Store {
   }
 
   deleteDoc(docId: string) {
+    // 软删除进回收站（7 天后由 purgeOldTrash 物理清理）
+    this.db.prepare("UPDATE docs SET deleted_at = ? WHERE doc_id = ?").run(Date.now(), docId);
+  }
+
+  restoreDoc(docId: string) {
+    this.db.prepare("UPDATE docs SET deleted_at = NULL WHERE doc_id = ?").run(docId);
+  }
+
+  hardDeleteDoc(docId: string) {
+    this.db.prepare("DELETE FROM comments WHERE doc_id = ?").run(docId);
     this.db.prepare("DELETE FROM snapshots WHERE doc_id = ?").run(docId);
     this.db.prepare("DELETE FROM docs WHERE doc_id = ?").run(docId);
   }
 
+  listTrash(userId: string): { docId: string; title: string; deletedAt: number }[] {
+    return (
+      this.db
+        .prepare("SELECT doc_id, title, deleted_at FROM docs WHERE owner_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC")
+        .all(userId) as { doc_id: string; title: string; deleted_at: number }[]
+    ).map((r) => ({ docId: r.doc_id, title: r.title, deletedAt: r.deleted_at }));
+  }
+
+  /** 回收站行（含归属），供恢复/彻底删除的权限检查 */
+  getTrashRow(docId: string): { docId: string; ownerId: string | null; deletedAt: number } | null {
+    const row = this.db
+      .prepare("SELECT doc_id, owner_id, deleted_at FROM docs WHERE doc_id = ? AND deleted_at IS NOT NULL")
+      .get(docId) as { doc_id: string; owner_id: string | null; deleted_at: number } | undefined;
+    return row ? { docId: row.doc_id, ownerId: row.owner_id, deletedAt: row.deleted_at } : null;
+  }
+
+  /** 物理清理回收站中超过 7 天的文档 */
+  private purgeOldTrash() {
+    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    const stale = this.db
+      .prepare("SELECT doc_id FROM docs WHERE deleted_at IS NOT NULL AND deleted_at < ?")
+      .all(cutoff) as { doc_id: string }[];
+    for (const r of stale) this.hardDeleteDoc(r.doc_id);
+  }
+
   touchDoc(docId: string) {
     this.db.prepare("UPDATE docs SET updated_at = ? WHERE doc_id = ?").run(Date.now(), docId);
+  }
+
+  // ------------------------------------------------------------ 块级评论
+
+  addComment(docId: string, blockId: string, user: { id: string; username: string; color: string }, body: string): import("../../shared/protocol").CommentData {
+    const safe = body.trim().slice(0, 1000);
+    const r = this.db
+      .prepare(
+        "INSERT INTO comments (doc_id, block_id, user_id, user_name, user_color, body, created_at, resolved) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+      )
+      .run(docId, blockId, user.id, user.username, user.color, safe, Date.now());
+    return {
+      id: Number(r.lastInsertRowid),
+      blockId,
+      userId: user.id,
+      name: user.username,
+      color: user.color,
+      body: safe,
+      createdAt: Date.now(),
+      resolved: false,
+    };
+  }
+
+  listComments(docId: string): import("../../shared/protocol").CommentData[] {
+    return (
+      this.db
+        .prepare("SELECT id, block_id, user_id, user_name, user_color, body, created_at, resolved FROM comments WHERE doc_id = ? ORDER BY created_at ASC")
+        .all(docId) as {
+        id: number;
+        block_id: string;
+        user_id: string;
+        user_name: string;
+        user_color: string;
+        body: string;
+        created_at: number;
+        resolved: number;
+      }[]
+    ).map((r) => ({
+      id: r.id,
+      blockId: r.block_id,
+      userId: r.user_id,
+      name: r.user_name,
+      color: r.user_color,
+      body: r.body,
+      createdAt: r.created_at,
+      resolved: r.resolved === 1,
+    }));
+  }
+
+  /** 切换解决状态；返回新状态，评论不存在返回 null */
+  toggleCommentResolve(docId: string, commentId: number): boolean | null {
+    const row = this.db
+      .prepare("SELECT resolved FROM comments WHERE id = ? AND doc_id = ?")
+      .get(commentId, docId) as { resolved: number } | undefined;
+    if (!row) return null;
+    const next = row.resolved === 1 ? 0 : 1;
+    this.db.prepare("UPDATE comments SET resolved = ? WHERE id = ?").run(next, commentId);
+    return next === 1;
   }
 
   writeSnapshot(doc: DocSnapshot) {

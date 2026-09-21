@@ -114,6 +114,11 @@ export class Hub {
     for (const docId of docIds) this.broadcastPresence(docId);
   }
 
+  /** 评论新增后由 HTTP 路由调用：推送给该文档房间的所有人（含发送者，客户端按 id 去重） */
+  broadcastComment(docId: string, comment: import("../../shared/protocol").CommentData) {
+    this.broadcastDoc(docId, { t: "comment.added", docId, comment });
+  }
+
   // -----------------------------------------------------------------------
 
   private onConnection(ws: WebSocket) {
@@ -256,7 +261,13 @@ export class Hub {
         if (session.role === "viewer") return; // 只读不上报光标
         this.broadcastDoc(
           session.docId,
-          { t: "cursor", userId: session.user.id, blockId: msg.blockId, offset: msg.offset },
+          {
+            t: "cursor",
+            userId: session.user.id,
+            blockId: msg.blockId,
+            offset: msg.offset,
+            focusOffset: msg.focusOffset,
+          },
           ws,
         );
         break;

@@ -1,8 +1,8 @@
 /**
- * editor-page：文档编辑页装配（原 main.ts 的协同核心 + v3 新增）。
+ * editor-page：文档编辑页装配（协同核心 + 产品功能层）。
  *
- * v3 新增：文档标题栏（创建者可改）、分享面板（编辑/只读链接）、只读模式整页降级、
- * pending 落 localStorage（关页后恢复未确认编辑）、大纲导航、快照恢复（doc.replace）。
+ * v5 新增：远程选区上报（selectionchange）、全文搜索（Ctrl+F）、块级评论（面板/气泡/未读）、
+ * Markdown 导出、只读"申请编辑"闭环、快捷键帮助、快照对比（见 snapshots）。
  */
 import type { BlockData, DocRole, Op, ServerMsg, UserInfo } from "@shared/protocol";
 import { DocModel } from "./model";
@@ -18,6 +18,9 @@ import { SnapshotViewer } from "./snapshots";
 import { AuthUI, getToken } from "./auth";
 import { Outline } from "./outline";
 import { openShareModal } from "./share";
+import { Comments } from "./comments";
+import { Search } from "./search";
+import { blocksToMarkdown, sanitizeFilename } from "./markdown";
 
 const PENDING_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 const PENDING_MAX_JSON = 256 * 1024;
@@ -25,6 +28,64 @@ const PENDING_MAX_JSON = 256 * 1024;
 export interface EditorPageOpts {
   docId: string;
   mode: "edit" | "view";
+}
+
+/** 复制文本（clipboard 优先，execCommand 兜底） */
+function copyText(text: string): boolean {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    if (ok) return true;
+  } catch {
+    /* fallthrough */
+  }
+  void navigator.clipboard?.writeText(text);
+  return false;
+}
+
+function openShortcutsModal() {
+  document.querySelector(".shortcuts-modal")?.remove();
+  const mask = document.createElement("div");
+  mask.className = "modal-mask shortcuts-modal";
+  const rows: [string, string][] = [
+    ["Enter", "拆分新块（列表/待办自动续型；空列表项回车转正文）"],
+    ["Backspace", "块首：合并到上一块；非正文块：先转为正文"],
+    ["Ctrl/⌘ + Z / Y", "撤销 / 重做（含块类型、勾选、快照恢复）"],
+    ["/", "唤起块类型菜单（↑↓ 选择，Enter 确认，Esc 关闭）"],
+    ["# 空格 · - 空格 · [ ] 空格 · ```", "Markdown 快捷转换：标题 / 列表 / 待办 / 代码块"],
+    ["[x] 空格", "直接创建已勾选的待办"],
+    ["Ctrl/⌘ + F", "全文搜索（Enter/Shift+Enter 跳转）"],
+    ["↑ ↓ ← →", "在块边界自动跨块移动光标"],
+    ["Esc", "关闭菜单 / 搜索 / 弹层"],
+    ["?", "打开本快捷键面板"],
+  ];
+  const box = document.createElement("div");
+  box.className = "shortcuts-box";
+  box.innerHTML = `<div class="shortcuts-head"><b>键盘快捷键</b><button class="btn">关闭</button></div><div class="shortcuts-body"></div>`;
+  const body = box.querySelector(".shortcuts-body")!;
+  for (const [k, v] of rows) {
+    const row = document.createElement("div");
+    row.className = "shortcut-row";
+    const key = document.createElement("kbd");
+    key.textContent = k;
+    const desc = document.createElement("span");
+    desc.textContent = v;
+    row.appendChild(key);
+    row.appendChild(desc);
+    body.appendChild(row);
+  }
+  box.querySelector("button")!.addEventListener("click", () => mask.remove());
+  mask.addEventListener("click", (e) => {
+    if (e.target === mask) mask.remove();
+  });
+  mask.appendChild(box);
+  document.body.appendChild(mask);
 }
 
 export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
@@ -77,12 +138,10 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
     canRestore: !viewerMode,
     onRestore: (blocks: BlockData[]) => {
       const prevBlocks = model.blocks.map((b) => ({ ...b }));
-      queue.submitImmediate(
-        [{ type: "doc.replace", blocks, prevBlocks }],
-        { selBefore: null },
-      );
+      queue.submitImmediate([{ type: "doc.replace", blocks, prevBlocks }], { selBefore: null });
       status.toast(`已恢复到 v${snapshotViewer.lastViewedVersion}（可 Ctrl+Z 撤销）`, "info");
     },
+    currentBlocks: () => model.blocks.map((b) => ({ ...b })),
   });
   const status = new StatusUI(
     (enforced) => net.send({ t: "config", lockEnforced: enforced }),
@@ -92,7 +151,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
   const auth = new AuthUI(status.userSlot);
   auth.onToast = (msg, kind) => status.toast(msg, kind);
 
-  // ---------------- 文档栏：返回 / 标题 / 分享 / 只读徽标 ----------------
+  // ---------------- 文档栏：返回 / 标题 / 工具组 / 只读徽标 ----------------
   const docBar = document.createElement("div");
   docBar.className = "docbar";
   const back = document.createElement("a");
@@ -108,17 +167,41 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
   docBar.appendChild(titleInput);
   const roBadge = document.createElement("span");
   roBadge.className = "docbar-ro";
-  roBadge.textContent = "👁 只读模式";
+  roBadge.textContent = "👁 只读";
   roBadge.style.display = "none";
   docBar.appendChild(roBadge);
-  const shareBtn = document.createElement("button");
-  shareBtn.className = "btn docbar-share";
-  shareBtn.textContent = "分享";
-  docBar.appendChild(shareBtn);
+
+  const tools = document.createElement("div");
+  tools.className = "docbar-tools";
+  docBar.appendChild(tools);
+  const mkBtn = (text: string, title: string, cls = "") => {
+    const b = document.createElement("button");
+    b.className = `btn docbar-btn ${cls}`;
+    b.textContent = text;
+    b.title = title;
+    tools.appendChild(b);
+    return b;
+  };
+  const searchBtn = mkBtn("🔍", "全文搜索（Ctrl+F）");
+  const commentsBtn = mkBtn("💬", "评论");
+  const commentsBadge = document.createElement("span");
+  commentsBadge.className = "docbar-badge";
+  commentsBadge.style.display = "none";
+  commentsBtn.appendChild(commentsBadge);
+  const exportBtn = mkBtn("⤓", "导出 Markdown");
+  const helpBtn = mkBtn("?", "键盘快捷键");
+  const shareBtn = mkBtn("分享", "复制链接 / 权限设置", "docbar-share");
+  const requestBtn = mkBtn("申请编辑", "需要编辑权限？", "docbar-request");
+  requestBtn.style.display = "none";
+  docBar.appendChild(requestBtn);
   root.insertBefore(docBar, page);
 
+  // ---------------- 状态与权限 ----------------
   let isOwner = false;
-  let titleSaveTimer: number | null = null;
+  let docEnforce = false;
+  let role: DocRole = viewerMode ? "viewer" : "editor";
+  let me: UserInfo = { userId: "anonymous", name: "我", color: "#666", isGuest: true };
+
   titleInput.addEventListener("change", async () => {
     const title = titleInput.value.trim();
     if (!title || !isOwner) return;
@@ -129,50 +212,135 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
     });
     status.toast(res.ok ? "标题已保存" : "标题保存失败", res.ok ? "info" : "error");
   });
+  let titleSaveTimer: number | null = null;
   titleInput.addEventListener("input", () => {
     if (titleSaveTimer !== null) clearTimeout(titleSaveTimer);
     titleSaveTimer = window.setTimeout(() => titleInput.dispatchEvent(new Event("change")), 800);
   });
   shareBtn.addEventListener("click", () => {
-    void openShareModal({
-      docId,
-      isOwner,
-      enforceOwnerEdit: false,
-      onToast: (m, k) => status.toast(m, k),
-    });
+    void openShareModal({ docId, isOwner, enforceOwnerEdit: docEnforce, onToast: (m, k) => status.toast(m, k) });
   });
-  // 初始 meta（标题与归属）
   void fetch(`/api/docs/${docId}/meta`, { headers: { Authorization: `Bearer ${getToken()}` } })
     .then((r) => (r.ok ? r.json() : null))
     .then((meta: { title?: string; isOwner?: boolean; enforceOwnerEdit?: boolean } | null) => {
       if (!meta) return;
       titleInput.value = meta.title ?? "";
+      docEnforce = !!meta.enforceOwnerEdit;
       isOwner = !!meta.isOwner && !viewerMode;
       titleInput.disabled = !isOwner;
       titleInput.title = isOwner ? "修改文档标题" : "只有创建者可以改标题";
+      updateRequestBtn();
     });
 
-  // ---------------- 光标上报节流 ----------------
+  // 只读用户的"申请编辑"闭环
+  const updateRequestBtn = () => {
+    const show = role === "viewer" && !viewerMode ? true : viewerMode;
+    requestBtn.style.display = show ? "" : "none";
+  };
+  requestBtn.addEventListener("click", () => {
+    document.querySelector(".request-pop")?.remove();
+    const pop = document.createElement("div");
+    pop.className = "modal-mask request-pop";
+    const box = document.createElement("div");
+    box.className = "share-modal";
+    box.innerHTML = `<div class="share-head"><b>需要编辑权限？</b><button class="btn req-close">关闭</button></div><div class="share-body"></div>`;
+    const body = box.querySelector(".share-body")!;
+    if (!docEnforce) {
+      body.innerHTML = `<p class="share-hint">你通过只读链接打开。本文档允许任何人编辑，直接用编辑链接进入即可：</p>`;
+      const a = document.createElement("a");
+      a.className = "btn req-open";
+      a.href = `/d/${docId}`;
+      a.textContent = "以编辑模式打开 →";
+      body.appendChild(a);
+    } else {
+      body.innerHTML = `<p class="share-hint">创建者已开启「仅创建者可编辑」。复制下面的话发给创建者，请 TA 在分享设置中放开编辑或把编辑链接发给你：</p>`;
+      const copy = document.createElement("button");
+      copy.className = "btn req-copy";
+      copy.textContent = "复制申请信息";
+      copy.addEventListener("click", () => {
+        copyText(
+          `请把我加为文档《${titleInput.value || "未命名文档"}》的协作者：${location.origin}/r/（请通过分享面板发送编辑链接）`,
+        );
+        status.toast("已复制申请信息", "info");
+      });
+      body.appendChild(copy);
+    }
+    box.querySelector(".req-close")!.addEventListener("click", () => pop.remove());
+    pop.addEventListener("click", (e) => {
+      if (e.target === pop) pop.remove();
+    });
+    pop.appendChild(box);
+    document.body.appendChild(pop);
+  });
+
+  // 导出 Markdown
+  exportBtn.addEventListener("click", () => {
+    document.querySelector(".export-pop")?.remove();
+    const pop = document.createElement("div");
+    pop.className = "export-pop";
+    const mk = (label: string, fn: () => void) => {
+      const b = document.createElement("button");
+      b.className = "export-item";
+      b.textContent = label;
+      b.addEventListener("click", () => {
+        fn();
+        pop.remove();
+      });
+      pop.appendChild(b);
+    };
+    mk("复制 Markdown", () => {
+      copyText(blocksToMarkdown(titleInput.value, model.blocks));
+      status.toast("已复制 Markdown 到剪贴板", "info");
+    });
+    mk("下载 .md 文件", () => {
+      const blob = new Blob([blocksToMarkdown(titleInput.value, model.blocks)], { type: "text/markdown;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${sanitizeFilename(titleInput.value)}.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    document.body.appendChild(pop);
+    const r = exportBtn.getBoundingClientRect();
+    pop.style.top = `${r.bottom + 6}px`;
+    pop.style.right = `${window.innerWidth - r.right}px`;
+    setTimeout(() => {
+      const close = (e: MouseEvent) => {
+        if (!pop.contains(e.target as Node)) {
+          pop.remove();
+          document.removeEventListener("mousedown", close);
+        }
+      };
+      document.addEventListener("mousedown", close);
+    }, 0);
+  });
+  helpBtn.addEventListener("click", openShortcutsModal);
+
+  // ---------------- 光标/选区上报（节流 120ms） ----------------
   let cursorTimer: number | null = null;
-  let pendingCursor: { blockId: string; offset: number } | null = null;
-  const reportCursor = (blockId: string, offset: number) => {
+  let pendingCursor: { blockId: string; offset: number; focusOffset?: number } | null = null;
+  const flushCursor = () => {
+    if (pendingCursor && net.open && role !== "viewer") {
+      net.send({ t: "cursor", ...pendingCursor });
+      pendingCursor = null;
+    }
+  };
+  const reportCursor = (blockId: string, offset: number, focusOffset?: number) => {
     if (viewerMode) return;
-    pendingCursor = { blockId, offset };
+    pendingCursor = focusOffset !== undefined && focusOffset > offset ? { blockId, offset, focusOffset } : { blockId, offset };
     if (cursorTimer !== null) return;
     cursorTimer = window.setTimeout(() => {
       cursorTimer = null;
-      if (pendingCursor && net.open) {
-        net.send({ t: "cursor", ...pendingCursor });
-        pendingCursor = null;
-      }
+      flushCursor();
     }, 120);
   };
+  document.addEventListener("selectionchange", () => {
+    const sel = editor.currentSelectionInfo();
+    if (sel) reportCursor(sel.blockId, sel.offset, sel.focusOffset);
+  });
 
-  let me: UserInfo = { userId: "anonymous", name: "我", color: "#666", isGuest: true };
   let locks: LockManager | undefined;
   let cursors: RemoteCursors | undefined;
-  let role: DocRole = viewerMode ? "viewer" : "editor";
-
   const queue = new TxQueue(model, net, undoMgr, {
     getAuthor: () => me.userId,
     getDocId: () => docId,
@@ -193,10 +361,22 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
     },
     onStructureChanged: () => cursors?.repositionAll(),
     onToast: (msg, kind) => status.toast(msg, kind),
+    onOpenComments: (blockId) => comments.open(blockId),
   });
   locks = new LockManager(net, editor, (msg, kind) => status.toast(msg, kind));
   cursors = new RemoteCursors(editor, page);
   new Outline(model, editor, page);
+  const search = new Search(model, editor, page);
+  const comments = new Comments(docId, model, editor, (m, k) => status.toast(m, k));
+  editor.commentsProvider = (blockId) => comments.countsFor(blockId).unresolved;
+  comments.onChange = (unresolved, unread) => {
+    commentsBadge.textContent = String(unresolved || "");
+    commentsBadge.style.display = unresolved > 0 ? "" : "none";
+    commentsBtn.title = `评论（${unresolved} 条未解决${unread > 0 ? `，${unread} 条未读` : ""}）`;
+    editor.renderCommentChips();
+  };
+  searchBtn.addEventListener("click", () => search.open());
+  commentsBtn.addEventListener("click", () => comments.toggle());
   if (viewerMode) editor.setReadOnly(true);
 
   // ---------------- 名字 / 主题 ----------------
@@ -223,9 +403,20 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
   });
   status.themeBtn.textContent = document.documentElement.classList.contains("dark") ? "☀️" : "🌙";
 
-  // 撤销/重做：页面级快捷键（焦点不在编辑器内——如弹窗关闭后——也能生效；输入框内交给原生）
+  // 撤销/重做：页面级快捷键（焦点不在编辑器内也能生效；输入框内交给原生）
   document.addEventListener("keydown", (e) => {
     const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "f") {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      e.preventDefault();
+      search.open();
+      return;
+    }
+    if (e.key === "?" && document.activeElement === document.body) {
+      openShortcutsModal();
+      return;
+    }
     if (!mod) return;
     const key = e.key.toLowerCase();
     if (key !== "z" && key !== "y") return;
@@ -274,12 +465,13 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
         editor.setReadOnly(isViewer);
         roBadge.style.display = isViewer ? "" : "none";
         status.lockToggle.disabled = isViewer;
+        comments.setMe(m.you.userId, !isViewer);
+        updateRequestBtn();
         if (isViewer && !viewerMode) {
           status.toast("创建者已开启「仅创建者可编辑」，当前为只读模式", "info");
         }
         if (!model.loaded) {
           model.loadSnapshot(m.doc);
-          // 关页前未确认的本地编辑：重放进模型，随 sync 对账补发
           if (!adoptedStored && storedPending) {
             adoptedStored = true;
             const dropped = model.adoptPending(storedPending);
@@ -293,6 +485,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
           requestResync();
           locks.reacquire();
         }
+        if (comments.comments.length === 0) void comments.load();
         break;
       }
       case "ack":
@@ -314,8 +507,12 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
       case "cursor": {
         const user = presence.getUser(m.userId);
         if (user && user.userId !== me.userId) {
-          cursors.update(user, m.blockId, m.offset);
+          cursors.update(user, m.blockId, m.offset, m.focusOffset);
         }
+        break;
+      }
+      case "comment.added": {
+        if (m.docId === docId) comments.onRemoteAdd(m.comment);
         break;
       }
       case "lock.changed":

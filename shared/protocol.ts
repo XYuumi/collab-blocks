@@ -156,6 +156,18 @@ export interface DocConfig {
   lockEnforced: boolean;
 }
 
+/** 块级评论（docs/01-F） */
+export interface CommentData {
+  id: number;
+  blockId: string;
+  userId: string;
+  name: string;
+  color: string;
+  body: string;
+  createdAt: number;
+  resolved: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // 消息定义
 // ---------------------------------------------------------------------------
@@ -166,7 +178,7 @@ export type DocRole = "owner" | "editor" | "viewer";
 export type ClientMsg =
   | { t: "hello"; docId: string; token?: string; name?: string; mode?: "view" }
   | { t: "tx"; tx: Tx }
-  | { t: "cursor"; blockId: string; offset: number }
+  | { t: "cursor"; blockId: string; offset: number; focusOffset?: number }
   | { t: "lock.acquire"; blockId: string }
   | { t: "lock.release"; blockId: string }
   | {
@@ -203,7 +215,7 @@ export type ServerMsg =
     }
   | { t: "remote.op"; tx: Tx; version: number }
   | { t: "presence"; users: UserInfo[] }
-  | { t: "cursor"; userId: string; blockId: string; offset: number }
+  | { t: "cursor"; userId: string; blockId: string; offset: number; focusOffset?: number }
   | { t: "lock.changed"; blockId: string; lock: LockState | null }
   | { t: "lock.denied"; blockId: string; holder: UserInfo }
   | { t: "config.changed"; config: DocConfig }
@@ -214,6 +226,7 @@ export type ServerMsg =
       /** pendingTxIds 中已被服务器执行过的（ACK 丢失场景），客户端应视为已提交 */
       ackedTxIds: string[];
     }
+  | { t: "comment.added"; docId: string; comment: CommentData }
   | { t: "pong" }
   | { t: "error"; message: string };
 

@@ -195,9 +195,133 @@ export function buildServer(dbPath?: string): AppServer {
       res.status(403).json({ error: "只有创建者可以删除文档" });
       return;
     }
-    docs.unload(meta.docId);
-    store.deleteDoc(meta.docId);
+    store.deleteDoc(req.params.docId); // 软删除进回收站（7 天可恢复）
     res.json({ ok: true });
+  });
+
+  // ------------------------------------------------------------ 回收站
+  app.get("/api/docs/trash/list", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录" });
+      return;
+    }
+    res.json({ docs: store.listTrash(user.id) });
+  });
+
+  app.post("/api/docs/:docId/restore", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录" });
+      return;
+    }
+    const row = store.getTrashRow(req.params.docId);
+    if (!row) {
+      res.status(404).json({ error: "回收站中没有该文档" });
+      return;
+    }
+    if (row.ownerId !== user.id) {
+      res.status(403).json({ error: "只有创建者可以恢复" });
+      return;
+    }
+    if (Date.now() - row.deletedAt > 7 * 24 * 3600 * 1000) {
+      res.status(400).json({ error: "已超过 7 天保留期" });
+      return;
+    }
+    store.restoreDoc(req.params.docId);
+    res.json({ ok: true });
+  });
+
+  app.post("/api/docs/:docId/purge", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录" });
+      return;
+    }
+    const row = store.getTrashRow(req.params.docId);
+    if (!row) {
+      res.status(404).json({ error: "回收站中没有该文档" });
+      return;
+    }
+    if (row.ownerId !== user.id) {
+      res.status(403).json({ error: "只有创建者可以彻底删除" });
+      return;
+    }
+    docs.unload(req.params.docId);
+    store.hardDeleteDoc(req.params.docId);
+    res.json({ ok: true });
+  });
+
+  // ------------------------------------------------------------ 块级评论
+  /** 与 hello 一致的角色判定：enforce 开启时非 owner 不可评论 */
+  const canComment = (meta: { ownerId: string | null; enforceOwnerEdit: boolean }, userId: string) =>
+    !(meta.ownerId && meta.enforceOwnerEdit && meta.ownerId !== userId);
+
+  app.get("/api/docs/:docId/comments", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录（访客也可）" });
+      return;
+    }
+    if (!store.getDocMeta(req.params.docId)) {
+      res.status(404).json({ error: "文档不存在" });
+      return;
+    }
+    res.json({ comments: store.listComments(req.params.docId) });
+  });
+
+  app.post("/api/docs/:docId/comments", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录（访客也可）" });
+      return;
+    }
+    const meta = store.getDocMeta(req.params.docId);
+    if (!meta) {
+      res.status(404).json({ error: "文档不存在" });
+      return;
+    }
+    if (!canComment(meta, user.id)) {
+      res.status(403).json({ error: "当前为仅创建者可编辑模式，无法评论" });
+      return;
+    }
+    const { blockId, body } = req.body ?? {};
+    if (typeof blockId !== "string" || typeof body !== "string" || !body.trim()) {
+      res.status(400).json({ error: "参数不完整" });
+      return;
+    }
+    const engine = docs.get(req.params.docId);
+    if (!engine || !engine.state.blocks.some((b) => b.id === blockId)) {
+      res.status(400).json({ error: "目标块不存在" });
+      return;
+    }
+    const comment = store.addComment(req.params.docId, blockId, user, body);
+    hub.broadcastComment(req.params.docId, comment);
+    res.json({ comment });
+  });
+
+  app.post("/api/docs/:docId/comments/:id/resolve", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录" });
+      return;
+    }
+    const meta = store.getDocMeta(req.params.docId);
+    if (!meta) {
+      res.status(404).json({ error: "文档不存在" });
+      return;
+    }
+    if (!canComment(meta, user.id)) {
+      res.status(403).json({ error: "无权操作" });
+      return;
+    }
+    const id = Number(req.params.id);
+    const resolved = Number.isInteger(id) ? store.toggleCommentResolve(req.params.docId, id) : null;
+    if (resolved === null) {
+      res.status(404).json({ error: "评论不存在" });
+      return;
+    }
+    res.json({ ok: true, resolved });
   });
 
   // 只读链接令牌（懒生成；docId 本身即编辑凭据，故不限制获取者）
