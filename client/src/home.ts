@@ -108,7 +108,17 @@ export async function mountHome(root: HTMLElement) {
         <h1>Collab Blocks</h1>
         <p class="home-hero-sub">基于块结构的协同文档：像腾讯文档一样分享链接实时协作，<br>底层是一套自研的同步协议（版本 + 块级 CAS，不依赖 OT/CRDT）。</p>
         <button class="btn home-cta">免费开始使用</button>
-        <p class="home-dim">注册即可创建文档并分享协作；也可以直接打开别人分享给你的链接，以访客身份参与编辑。</p>
+        <div class="home-hero-tips">
+          <div class="home-hero-tip">
+            <span class="home-hero-tip-icon">✍️</span>
+            <span><b>注册登录</b> 创建文档，分享链接邀请协作</span>
+          </div>
+          <div class="home-hero-tip-divider"></div>
+          <div class="home-hero-tip">
+            <span class="home-hero-tip-icon">🔗</span>
+            <span><b>打开分享链接</b> 即可以访客身份参与编辑</span>
+          </div>
+        </div>
       </div>
       <section class="home-intro guest-intro"></section>`;
     main.querySelector<HTMLElement>(".home-cta")!.addEventListener("click", () => openAuthModal("register"));

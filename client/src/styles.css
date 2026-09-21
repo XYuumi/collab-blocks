@@ -734,6 +734,41 @@ html.dark .offline-banner {
   filter: brightness(1.08);
   transform: translateY(-1px);
 }
+
+/* Hero 底部两条使用提示（图标 + 分隔线的卡片式行） */
+.home-hero-tips {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 20px;
+  padding: 10px 20px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+}
+.home-hero-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  padding: 0 14px;
+}
+.home-hero-tip b {
+  color: var(--text);
+  font-weight: 600;
+}
+.home-hero-tip-icon {
+  font-size: 16px;
+  flex: none;
+}
+.home-hero-tip-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+  flex: none;
+}
+
 .guest-intro {
   margin-top: 6px;
 }
