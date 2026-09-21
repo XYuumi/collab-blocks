@@ -182,7 +182,7 @@ body {
   background: var(--border-soft);
 }
 .block-text[data-empty="true"]:focus::before {
-  content: "输入正文；键入 / 唤起菜单，或 # 空格 / - 空格 / [ ] 空格 快速转换块类型";
+  content: "输入正文，键入 / 选择块类型…";
   color: var(--text-dim);
   pointer-events: none;
 }
@@ -710,6 +710,7 @@ html.dark .offline-banner {
 .home-bar {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
   margin-bottom: 14px;
 }
 .home-new {
@@ -1127,7 +1128,7 @@ html.dark .offline-banner {
 /* 文档栏工具组 */
 .docbar-tools {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   align-items: center;
 }
 .docbar-btn {
@@ -1327,7 +1328,16 @@ html.dark .offline-banner {
   .docbar {
     position: static;
     padding: 6px 10px;
-    gap: 8px;
+    gap: 6px 8px;
+    flex-wrap: wrap;
+  }
+  /* iOS：输入框 <16px 聚焦会触发页面缩放 */
+  .name-input,
+  .docbar-title,
+  .auth-body input,
+  .comment-input,
+  .share-row input {
+    font-size: 16px;
   }
   .page {
     padding: 10px 10px 110px;
@@ -1341,12 +1351,6 @@ html.dark .offline-banner {
     display: none;
   }
 
-  /* iOS：输入框 <16px 聚焦会触发页面缩放 */
-  .name-input,
-  .docbar-title,
-  .auth-body input {
-    font-size: 16px;
-  }
   .name-input {
     width: 104px;
   }

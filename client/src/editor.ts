@@ -45,12 +45,12 @@ export interface SlashItem {
 
 const SLASH_ITEMS: SlashItem[] = [
   { type: "text", label: "正文", hint: "普通段落", keys: ["text", "p", "para", "wenzheng", "zhengwen"] },
-  { type: "h1", label: "标题一", hint: "# + 空格", keys: ["h1", "t1", "biaoti", "title", "heading"] },
-  { type: "h2", label: "标题二", hint: "## + 空格", keys: ["h2", "t2", "biaoti", "title"] },
-  { type: "h3", label: "标题三", hint: "### + 空格", keys: ["h3", "t3", "biaoti", "title"] },
-  { type: "bullet", label: "无序列表", hint: "- + 空格", keys: ["bullet", "list", "ul", "liebiao", "列表"] },
-  { type: "todo", label: "待办事项", hint: "[ ] + 空格，可勾选", keys: ["todo", "check", "checkbox", "daiban", "勾选", "任务", "task"] },
-  { type: "code", label: "代码块", hint: "``` 触发", keys: ["code", "daima", "代码", "pre", "mono"] },
+  { type: "h1", label: "标题一", hint: "大标题", keys: ["h1", "t1", "biaoti", "title", "heading"] },
+  { type: "h2", label: "标题二", hint: "中标题", keys: ["h2", "t2", "biaoti", "title"] },
+  { type: "h3", label: "标题三", hint: "小标题", keys: ["h3", "t3", "biaoti", "title"] },
+  { type: "bullet", label: "无序列表", hint: "圆点列表", keys: ["bullet", "list", "ul", "liebiao", "列表"] },
+  { type: "todo", label: "待办事项", hint: "可勾选任务", keys: ["todo", "check", "checkbox", "daiban", "勾选", "任务", "task"] },
+  { type: "code", label: "代码块", hint: "等宽字体", keys: ["code", "daima", "代码", "pre", "mono"] },
 ];
 
 /** Markdown 快捷输入：在空块键入触发串即转换块类型（Notion 式） */
@@ -521,11 +521,15 @@ export class Editor {
     const rect = this.blockRectAt(blockId, 1);
     if (!rect) return;
     const host = this.container.getBoundingClientRect();
-    // 窄屏钳制：菜单不超出容器右缘
+    // 菜单实际高度（渲染后测量；首次渲染前用估值）
+    const menuH = this.slash.el.offsetHeight || 300;
     const menuW = 240;
     const left = Math.max(0, Math.min(rect.left - host.left, host.width - menuW - 8));
     this.slash.el.style.left = `${left}px`;
-    this.slash.el.style.top = `${rect.bottom - host.top + 4}px`;
+    // 防遮挡：下方放不下时翻转到行上方
+    const overflowBelow = rect.bottom + menuH + 12 > window.innerHeight;
+    const top = overflowBelow ? rect.top - host.top - menuH - 4 : rect.bottom - host.top + 4;
+    this.slash.el.style.top = `${Math.max(0, top)}px`;
   }
 
   /** 输入变化时驱动菜单开合与过滤 */

@@ -58,12 +58,11 @@ function openShortcutsModal() {
     ["Backspace", "块首：合并到上一块；非正文块：先转为正文"],
     ["Ctrl/⌘ + Z / Y", "撤销 / 重做（含块类型、勾选、快照恢复）"],
     ["/", "唤起块类型菜单（↑↓ 选择，Enter 确认，Esc 关闭）"],
-    ["# 空格 · - 空格 · [ ] 空格 · ```", "Markdown 快捷转换：标题 / 列表 / 待办 / 代码块"],
-    ["[x] 空格", "直接创建已勾选的待办"],
-    ["Ctrl/⌘ + F", "全文搜索（Enter/Shift+Enter 跳转）"],
+    ["Ctrl/⌘ + F", "全文搜索（Enter / Shift+Enter 跳转）"],
     ["↑ ↓ ← →", "在块边界自动跨块移动光标"],
     ["Esc", "关闭菜单 / 搜索 / 弹层"],
     ["?", "打开本快捷键面板"],
+    ["Markdown", "输入 #、-、[ ]、``` 后跟空格可快速转换块类型（[x] 空格 = 已勾选待办）"],
   ];
   const box = document.createElement("div");
   box.className = "shortcuts-box";
@@ -259,7 +258,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
       copy.textContent = "复制申请信息";
       copy.addEventListener("click", () => {
         copyText(
-          `请把我加为文档《${titleInput.value || "未命名文档"}》的协作者：${location.origin}/r/（请通过分享面板发送编辑链接）`,
+          `你好，我想协作编辑文档《${titleInput.value || "未命名文档"}》，这是该文档的只读链接：${location.href}\n请把编辑链接发给我，或在分享设置中允许任何人编辑。`,
         );
         status.toast("已复制申请信息", "info");
       });

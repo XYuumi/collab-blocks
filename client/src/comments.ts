@@ -120,7 +120,9 @@ export class Comments {
   }
 
   private snippet(blockId: string): string {
-    const t = this.model.visibleText(blockId);
+    const block = this.model.block(blockId);
+    if (!block) return "（原块已删除）";
+    const t = block.text;
     return t.length > 12 ? `${t.slice(0, 12)}…` : t || "空块";
   }
 

@@ -121,7 +121,7 @@ export async function mountHome(root: HTMLElement) {
     open.textContent = d.title || "未命名文档";
     const meta = document.createElement("span");
     meta.className = "home-item-meta";
-    meta.textContent = `${d.mine ? "我的" : "示例"} · v${d.version} · ${fmtTime(d.updatedAt)}`;
+    meta.textContent = `${d.mine ? "我的" : "公开"} · v${d.version} · ${fmtTime(d.updatedAt)}`;
     const actions = document.createElement("span");
     actions.className = "home-item-actions";
     if (d.mine) {
