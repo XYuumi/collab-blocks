@@ -242,6 +242,9 @@ body {
   background: var(--code-bg);
   border-radius: 6px;
   padding: 10px 14px;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  tab-size: 2;
 }
 /* 复选框走正常文档流（flex 子元素），与文字天然不重叠 */
 .block-checkbox {

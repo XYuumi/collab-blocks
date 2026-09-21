@@ -932,6 +932,15 @@ export class Editor {
     if (mod) return; // Ctrl+Z/Y 撤销重做在页面级处理（避免焦点丢失后失效）
     if (e.key === "Enter") {
       e.preventDefault();
+      // 代码块内回车 → 插入换行符（不拆块）；Shift+Enter 同理
+      if (bType === "code") {
+        this.queue.submitImmediate(
+          [{ type: "text.insert", blockId: id, offset, text: "\n" }],
+          { selBefore: { blockId: id, offset }, caretAfter: { blockId: id, offset: offset + 1 } },
+        );
+        this.focusBlock(id, offset + 1);
+        return;
+      }
       // 空的列表/待办块回车 → 转为正文（退出列表）
       if ((bType === "bullet" || bType === "todo") && text === "") {
         this.queue.submitImmediate(
@@ -999,7 +1008,9 @@ export class Editor {
       this.focusBlock(prev.id, this.model.visibleText(prev.id).length);
       return;
     }
-    if (e.key === "ArrowDown" && offset === text.length && next) {
+    // 代码块内 ↓ 在最后一行时才跳到下一块（否则让光标在多行内移动）
+    const isLastLine = bType !== "code" || offset === text.length;
+    if (e.key === "ArrowDown" && offset === text.length && next && isLastLine) {
       e.preventDefault();
       this.focusBlock(next.id, 0);
       return;
