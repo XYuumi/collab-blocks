@@ -80,6 +80,53 @@ export async function mountHome(root: HTMLElement) {
   const me = payload.user?.isGuest ? `${payload.user.name}（访客）` : payload.user?.name ?? "我";
   renderHeader(true, me);
 
+  // ---------------- 产品介绍（登录后也展示，可收起，偏好记忆在 localStorage） ----------------
+  const intro = document.createElement("section");
+  intro.className = "home-intro";
+  const introDismissed = localStorage.getItem("ce-intro-dismissed") === "1";
+  if (!introDismissed) {
+    const head = document.createElement("div");
+    head.className = "home-intro-head";
+    head.innerHTML = `<div class="home-intro-title">📚 这是什么？<span>Collab Blocks · 多人实时协作的块结构编辑器</span></div>`;
+    const dismiss = document.createElement("button");
+    dismiss.className = "btn home-intro-dismiss";
+    dismiss.textContent = "收起";
+    dismiss.title = "收起介绍（可在 localStorage 清除 ce-intro-dismissed 恢复）";
+    dismiss.addEventListener("click", () => {
+      intro.remove();
+      localStorage.setItem("ce-intro-dismissed", "1");
+    });
+    head.appendChild(dismiss);
+    intro.appendChild(head);
+
+    const grid = document.createElement("div");
+    grid.className = "home-intro-grid";
+    const cards: [string, string, string][] = [
+      ["⚡", "实时同步", "多人同时编辑，输入即达；远程光标与选区高亮让你看见对方正在改哪里"],
+      ["🧱", "块结构", "标题/列表/待办/代码/图片块；键入 / 唤起菜单，或 # 空格、[ ] 空格等 Markdown 快捷转换"],
+      ["🔗", "分享与权限", "编辑链接 + 只读链接双轨分发；可开启「仅创建者可编辑」并维护协作者名单"],
+      ["🛡", "断线不丢", "断网照常编辑，重连自动补发；关页前的未同步修改也能恢复；每次提交即落盘"],
+      ["⏪", "版本与快照", "每个事务推进版本号；一键恢复历史快照（可撤销），支持与当前内容对比"],
+      ["💬", "评论与搜索", "块级评论线程（实时推送+未读角标）；Ctrl+F 全文搜索高亮跳转"],
+    ];
+    for (const [icon, title, desc] of cards) {
+      const card = document.createElement("div");
+      card.className = "home-intro-card";
+      card.innerHTML = `<div class="home-intro-icon">${icon}</div><div><h3></h3><p></p></div>`;
+      card.querySelector("h3")!.textContent = title;
+      card.querySelector("p")!.textContent = desc;
+      grid.appendChild(card);
+    }
+    intro.appendChild(grid);
+
+    const more = document.createElement("p");
+    more.className = "home-intro-more";
+    more.innerHTML = `快速上手：新建文档 → 点「分享」复制链接发给同伴 → 两个页面同时编辑试试。
+      完整设计文档见仓库 <code>docs/</code> 目录（功能说明 · 架构 · 同步协议 · 冲突处理 · 自问自答 · 审查报告 · 技术选型）。`;
+    intro.appendChild(more);
+    main.appendChild(intro);
+  }
+
   // 新建 + 回收站
   const bar = document.createElement("div");
   bar.className = "home-bar";

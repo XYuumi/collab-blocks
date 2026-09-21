@@ -174,22 +174,36 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
   const tools = document.createElement("div");
   tools.className = "docbar-tools";
   docBar.appendChild(tools);
-  const mkBtn = (text: string, title: string, cls = "") => {
+  const mkBtn = (content: string, title: string, cls = "") => {
     const b = document.createElement("button");
     b.className = `btn docbar-btn ${cls}`;
-    b.textContent = text;
+    // 内容是受控的 SVG 字符串或固定文案（无用户输入），按 HTML 写入
+    if (content.trimStart().startsWith("<svg")) b.innerHTML = content;
+    else b.textContent = content;
     b.title = title;
     tools.appendChild(b);
     return b;
   };
-  const searchBtn = mkBtn("🔍", "全文搜索（Ctrl+F）");
+  const searchBtn = mkBtn(
+    `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`,
+    "全文搜索（Ctrl+F）",
+    "icon-btn",
+  );
   const commentsBtn = mkBtn("💬", "评论");
   const commentsBadge = document.createElement("span");
   commentsBadge.className = "docbar-badge";
   commentsBadge.style.display = "none";
   commentsBtn.appendChild(commentsBadge);
-  const exportBtn = mkBtn("⤓", "导出 Markdown");
-  const helpBtn = mkBtn("?", "键盘快捷键");
+  const exportBtn = mkBtn(
+    `<svg viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7.5 11.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg>`,
+    "导出 Markdown / 纯文本 / HTML",
+    "icon-btn",
+  );
+  const helpBtn = mkBtn(
+    `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.4 2.3c-.8.3-1 .9-1 1.7"/><path d="M12 16.8v.2"/></svg>`,
+    "键盘快捷键",
+    "icon-btn",
+  );
   const shareBtn = mkBtn("分享", "复制链接 / 权限设置", "docbar-share");
   const requestBtn = mkBtn("申请编辑", "需要编辑权限？", "docbar-request");
   requestBtn.style.display = "none";

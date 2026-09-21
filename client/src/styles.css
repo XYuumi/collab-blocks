@@ -142,6 +142,12 @@ body {
   color: #fff;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
+}
+.user-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 用户昵称与退出按钮的间隔 */
 }
 .login-btn {
   color: var(--accent);
@@ -769,6 +775,105 @@ html.dark .offline-banner {
   text-align: center;
   color: var(--text-dim);
   padding: 40px;
+}
+
+/* ---------------- 产品介绍卡片区 */
+.home-intro {
+  margin: 22px 0 26px;
+  padding: 20px 22px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.home-intro-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.home-intro-title {
+  font-size: 17px;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.home-intro-title span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.home-intro-dismiss {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.home-intro-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.home-intro-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--input-bg);
+}
+.home-intro-icon {
+  font-size: 22px;
+  line-height: 1.3;
+  flex: none;
+}
+.home-intro-card h3 {
+  margin: 0 0 3px;
+  font-size: 14px;
+}
+.home-intro-card p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.home-intro-more {
+  margin: 14px 2px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.home-intro-more code {
+  background: var(--code-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* 图标按钮（导出/搜索/评论统一风格） */
+.docbar-btn.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 0;
+  line-height: 1;
+}
+.docbar-btn.icon-btn svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+.docbar-btn.icon-btn:hover svg {
+  stroke: var(--accent);
+}
+.docbar-btn.icon-btn svg {
+  stroke: var(--text-dim);
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* ---------------------------------------------------------------- 大纲 */

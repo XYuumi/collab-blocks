@@ -238,7 +238,7 @@ async function main() {
     await step("Markdown 导出内容正确（纯函数直测）", async () => {
       const md = await pageA.evaluate(() => {
         // 页面上下文里拿不到模块；改为验证 UI 菜单存在即可，内容由单测覆盖
-        return !!document.querySelector('.docbar-btn[title="导出 Markdown"]');
+        return !!document.querySelector('.docbar-btn[title^="导出"]');
       });
       return md;
     });
