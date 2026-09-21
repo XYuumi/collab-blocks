@@ -134,7 +134,7 @@ export async function mountHome(root: HTMLElement) {
     mountIntroCards(body, false);
     const toggle = document.createElement("button");
     toggle.className = "btn home-intro-toggle";
-    toggle.innerHTML = `<span class="toggle-text"></span><span class="toggle-arrow">▾</span>`;
+    toggle.innerHTML = `<span class="toggle-text">收起介绍</span><span class="toggle-arrow">▾</span>`;
     /** 同一按钮收/放：整块 max-height + opacity 过渡，头部行始终可见 */
     const setCollapsed = (collapsed: boolean, instant = false) => {
       if (instant) (intro as HTMLElement).style.transition = "none";

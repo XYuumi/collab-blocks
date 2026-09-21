@@ -9,7 +9,7 @@
 [![CI](https://github.com/XYuumi/collab-blocks/actions/workflows/ci.yml/badge.svg)](https://github.com/XYuumi/collab-blocks/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-339933)
-![Tests](https://img.shields.io/badge/tests-50%20%E5%8D%95%E6%B5%8B%20%2B%2010%20E2E-2ea043)
+![Tests](https://img.shields.io/badge/tests-52%20%E5%8D%95%E6%B5%8B%20%2B%2010%20E2E-2ea043)
 
 </div>
 
@@ -40,7 +40,7 @@ git clone https://github.com/XYuumi/collab-blocks.git
 cd collab-blocks
 npm install        # Node ≥ 22（推荐 24；npm workspaces）
 
-npm test           # 50 个测试：引擎 / WS 协议 / 认证存储 / 多文档权限 / 评论回收站 / 协作者图片 / 性能护栏 + 客户端模型收敛
+npm test           # 52 个测试：引擎 / WS 协议 / 认证存储 / 多文档权限 / 评论回收站 / 协作者图片 / 性能护栏 + 客户端模型收敛
 npm run build      # 构建前端
 npm start          # 启动 → http://localhost:3000
 ```
