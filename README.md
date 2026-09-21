@@ -46,7 +46,7 @@ git clone https://github.com/XYuumi/collab-blocks.git
 cd collab-blocks
 npm install
 npm run build
-npm start          # → http://localhost:3000
+npm start          # → http://localhost:28365
 ```
 
 **体验协同**：注册登录 → 新建文档 → 点「分享」复制链接 → 另一标签页打开 → 双方同时编辑。

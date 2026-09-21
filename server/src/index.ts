@@ -557,7 +557,7 @@ export function buildServer(dbPath?: string): AppServer {
 
 // 直接运行（tsx src/index.ts / node dist/index.js）时启动 3000 端口
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
-  const PORT = Number(process.env.PORT || 3000);
+  const PORT = Number(process.env.PORT || 28365);
   // E2E_DB：端到端测试注入临时库路径
   buildServer(process.env.E2E_DB).listen(PORT).then(({ port }) => {
     console.log(`[server] listening on http://localhost:${port} (ws: /ws)`);
