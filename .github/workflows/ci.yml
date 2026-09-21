@@ -17,10 +17,12 @@ jobs:
       - name: 安装依赖
         run: npm ci
       - name: 类型检查（服务端）
-        run: npm run typecheck -w server
+        run: cd server && npx tsc --noEmit
       - name: 类型检查（客户端）
-        run: npm run typecheck -w client
-      - name: 全部测试（50 个）
-        run: npm test
+        run: cd client && npx tsc --noEmit
+      - name: 服务端测试
+        run: cd server && npx tsx --test test/auth.test.ts test/docs.test.ts test/engine.test.ts test/features.test.ts test/perf.test.ts test/ws.test.ts
+      - name: 客户端测试
+        run: cd client && npx tsx --test test/model.test.ts test/utils.test.ts
       - name: 构建
-        run: npm run build
+        run: cd client && npx vite build
