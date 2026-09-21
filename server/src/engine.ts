@@ -80,7 +80,7 @@ export class DocEngine {
       docId: this.state.docId,
       version: this.state.version,
       structureVersion: this.state.structureVersion,
-      blocks: this.state.blocks.map((b) => ({ id: b.id, type: b.type, text: b.text, checked: b.checked })),
+      blocks: this.state.blocks.map((b) => ({ id: b.id, type: b.type, text: b.text, checked: b.checked, src: b.src })),
     };
   }
 
@@ -125,6 +125,7 @@ export class DocEngine {
             type: isBlockType(op.blockType) ? op.blockType : "text",
             text: op.text,
             ...(op.checked !== undefined ? { checked: op.checked } : {}),
+            ...(op.blockType === "image" && typeof op.src === "string" && op.src.startsWith("data:image/") ? { src: op.src } : {}),
             blockVersion: 0, // 提交时统一赋新版本
             lastWriter: tx.author,
           };
@@ -158,6 +159,7 @@ export class DocEngine {
               type: b.type,
               text: typeof b.text === "string" ? b.text : "",
               ...(b.checked !== undefined ? { checked: !!b.checked } : {}),
+              ...(b.src !== undefined && typeof b.src === "string" && b.src.startsWith("data:image/") ? { src: b.src } : {}),
               blockVersion: 0,
               lastWriter: tx.author,
             });

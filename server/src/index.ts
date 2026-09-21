@@ -252,6 +252,68 @@ export function buildServer(dbPath?: string): AppServer {
     res.json({ ok: true });
   });
 
+  // ------------------------------------------------------------ 协作者名单
+  app.get("/api/docs/:docId/collaborators", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录" });
+      return;
+    }
+    const meta = store.getDocMeta(req.params.docId);
+    if (!meta) {
+      res.status(404).json({ error: "文档不存在" });
+      return;
+    }
+    res.json({ collaborators: store.listCollaborators(req.params.docId) });
+  });
+
+  app.post("/api/docs/:docId/collaborators", (req: Request, res: Response) => {
+    try {
+      const user = store.resolveToken(readToken(req));
+      if (!user) {
+        res.status(401).json({ error: "请先登录" });
+        return;
+      }
+      const meta = store.getDocMeta(req.params.docId);
+      if (!meta) {
+        res.status(404).json({ error: "文档不存在" });
+        return;
+      }
+      if (meta.ownerId !== user.id) {
+        res.status(403).json({ error: "只有创建者可以邀请协作者" });
+        return;
+      }
+      const { username } = req.body ?? {};
+      if (typeof username !== "string" || !username.trim()) {
+        res.status(400).json({ error: "请填写用户名" });
+        return;
+      }
+      const added = store.addCollaborator(req.params.docId, username);
+      res.json({ collaborator: added });
+    } catch (err) {
+      authErr(res, err);
+    }
+  });
+
+  app.delete("/api/docs/:docId/collaborators/:userId", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录" });
+      return;
+    }
+    const meta = store.getDocMeta(req.params.docId);
+    if (!meta) {
+      res.status(404).json({ error: "文档不存在" });
+      return;
+    }
+    if (meta.ownerId !== user.id) {
+      res.status(403).json({ error: "只有创建者可以移除协作者" });
+      return;
+    }
+    store.removeCollaborator(req.params.docId, req.params.userId);
+    res.json({ ok: true });
+  });
+
   // ------------------------------------------------------------ 块级评论
   /** 与 hello 一致的角色判定：enforce 开启时非 owner 不可评论 */
   const canComment = (meta: { ownerId: string | null; enforceOwnerEdit: boolean }, userId: string) =>
@@ -402,7 +464,8 @@ export function buildServer(dbPath?: string): AppServer {
 // 直接运行（tsx src/index.ts / node dist/index.js）时启动 3000 端口
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const PORT = Number(process.env.PORT || 3000);
-  buildServer().listen(PORT).then(({ port }) => {
+  // E2E_DB：端到端测试注入临时库路径
+  buildServer(process.env.E2E_DB).listen(PORT).then(({ port }) => {
     console.log(`[server] listening on http://localhost:${port} (ws: /ws)`);
   });
 }

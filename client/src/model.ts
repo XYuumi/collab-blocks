@@ -141,6 +141,7 @@ export class DocModel {
         type: op.blockType ?? "text",
         text: op.text,
         ...(op.checked !== undefined ? { checked: op.checked } : {}),
+        ...(op.src !== undefined ? { src: op.src } : {}),
       });
     } else if (op.type === "block.delete") {
       const i = this.blockIndex(op.id);

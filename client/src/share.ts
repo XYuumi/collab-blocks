@@ -32,8 +32,6 @@ export async function openShareModal(opts: {
   onToast: (msg: string, kind?: "info" | "warn" | "error") => void;
 }) {
   const { docId, isOwner, onToast } = opts;
-  // 只读令牌需要时懒生成：通过 meta 读取不到时由服务器在首次分享时创建——
-  // 这里直接请求 ro 链接（服务器端 readOnlyToken 懒生成），用 meta 接口带出
   const metaRes = await fetch(`/api/docs/${docId}/meta`, { headers: { Authorization: `Bearer ${getToken()}` } });
   const meta = (await metaRes.json()) as { enforceOwnerEdit?: boolean };
   let enforce = opts.enforceOwnerEdit || !!meta.enforceOwnerEdit;
@@ -58,7 +56,15 @@ export async function openShareModal(opts: {
       <p class="share-hint">拿到编辑链接的人可以编辑；拿到只读链接的人只能查看（实时同步）。</p>
       ${
         isOwner
-          ? `<label class="share-toggle"><input type="checkbox" class="share-enforce" ${enforce ? "checked" : ""}/> 仅创建者可编辑（其他人打开编辑链接也变为只读）</label>`
+          ? `<label class="share-toggle"><input type="checkbox" class="share-enforce" ${enforce ? "checked" : ""}/> 仅创建者可编辑（协作者名单内的人除外）</label>
+             <div class="share-collab">
+               <div class="share-collab-head">协作者名单（开启上面开关后，名单内的人仍可编辑）</div>
+               <div class="share-collab-list"></div>
+               <div class="share-collab-add">
+                 <input class="share-collab-input" placeholder="按用户名邀请…" maxlength="24" />
+                 <button class="btn share-collab-btn">邀请</button>
+               </div>
+             </div>`
           : ""
       }
     </div>`;
@@ -103,7 +109,70 @@ export async function openShareModal(opts: {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ enforceOwnerEdit: enforce }),
     });
-    if (res.ok) onToast(enforce ? "已开启：仅创建者可编辑" : "已关闭：拿到编辑链接的人都可编辑", "info");
+    if (res.ok) onToast(enforce ? "已开启：仅创建者与协作者可编辑" : "已关闭：拿到编辑链接的人都可编辑", "info");
     else onToast("设置失败", "error");
+  });
+
+  // ---------------- 协作者名单（创建者） ----------------
+  const collabList = box.querySelector<HTMLElement>(".share-collab-list");
+  const renderCollabs = async () => {
+    if (!collabList) return;
+    try {
+      const res = await fetch(`/api/docs/${docId}/collaborators`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const data = (await res.json()) as { collaborators: { userId: string; name: string; color: string }[] };
+      collabList.innerHTML = "";
+      if (data.collaborators.length === 0) {
+        collabList.innerHTML = `<span class="share-hint">暂无协作者</span>`;
+        return;
+      }
+      for (const c of data.collaborators) {
+        const row = document.createElement("div");
+        row.className = "share-collab-row";
+        const dot = document.createElement("span");
+        dot.className = "comment-dot";
+        dot.style.background = c.color;
+        const name = document.createElement("span");
+        name.textContent = c.name;
+        const del = document.createElement("button");
+        del.className = "btn";
+        del.textContent = "移除";
+        del.addEventListener("click", async () => {
+          await fetch(`/api/docs/${docId}/collaborators/${c.userId}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
+          void renderCollabs();
+        });
+        row.appendChild(dot);
+        row.appendChild(name);
+        row.appendChild(del);
+        collabList.appendChild(row);
+      }
+    } catch {
+      collabList.innerHTML = `<span class="share-hint">加载失败</span>`;
+    }
+  };
+  void renderCollabs();
+  const collabInput = box.querySelector<HTMLInputElement>(".share-collab-input");
+  const addCollab = async () => {
+    const username = collabInput?.value.trim() ?? "";
+    if (!username) return;
+    const res = await fetch(`/api/docs/${docId}/collaborators`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+      body: JSON.stringify({ username }),
+    });
+    const data = (await res.json()) as { error?: string };
+    if (res.ok) {
+      onToast(`已邀请 ${username}`, "info");
+      if (collabInput) collabInput.value = "";
+      void renderCollabs();
+    } else {
+      onToast(data.error ?? "邀请失败", "error");
+    }
+  };
+  box.querySelector(".share-collab-btn")?.addEventListener("click", () => void addCollab());
+  collabInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void addCollab();
+    }
   });
 }

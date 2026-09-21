@@ -33,7 +33,7 @@ export class Outline {
 
     this.toggleBtn.addEventListener("click", () => this.toggle());
     this.model.on((e) => {
-      if (e.kind === "text" || e.kind === "structure") this.render();
+      if (e.kind === "text" || e.kind === "structure") this.renderSoon();
     });
     window.addEventListener(
       "scroll",
@@ -47,6 +47,16 @@ export class Outline {
       { passive: true },
     );
     this.render();
+  }
+
+  /** 大文档下每次文本事件全量重建浪费：300ms 防抖 */
+  private renderTimer: number | null = null;
+  private renderSoon() {
+    if (this.renderTimer !== null) return;
+    this.renderTimer = window.setTimeout(() => {
+      this.renderTimer = null;
+      this.render();
+    }, 300);
   }
 
   toggle() {

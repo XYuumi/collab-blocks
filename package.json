@@ -1,8 +1,8 @@
 {
-  "name": "collab-editor",
+  "name": "collab-blocks",
   "private": true,
   "version": "1.0.0",
-  "description": "基于 DOM 渲染的块结构协同编辑器（面试作品）",
+  "description": "Collab Blocks —— 基于 DOM 渲染的块结构协同编辑器（多文档/分享/权限/评论/搜索，自研同步协议）",
   "workspaces": [
     "server",
     "client"
@@ -11,9 +11,11 @@
     "dev": "concurrently -n server,client -c blue,green \"npm:dev -w server\" \"npm:dev -w client\"",
     "build": "npm run build -w client",
     "start": "npm run start -w server",
-    "test": "npm test -w server && npm test -w client"
+    "test": "npm test -w server && npm test -w client",
+    "test:e2e": "node e2e/run-e2e.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "puppeteer-core": "^23.11.1"
   }
 }

@@ -4,6 +4,7 @@
  */
 import type { BlockData, DocSnapshot } from "@shared/protocol";
 import { diffBlocks } from "./diffutil";
+import { blocksToMarkdown } from "./markdown";
 
 interface SnapshotMeta {
   version: number;
@@ -22,6 +23,7 @@ export class SnapshotViewer {
       canRestore: boolean;
       onRestore: (blocks: BlockData[]) => void;
       currentBlocks: () => BlockData[];
+      currentTitle?: () => string;
     },
   ) {}
 
@@ -60,6 +62,30 @@ export class SnapshotViewer {
     });
     actions.appendChild(diffBtn);
     this.diffBtn = diffBtn;
+    const exportBtn = document.createElement("button");
+    exportBtn.className = "btn snap-export";
+    exportBtn.textContent = "导出此版本";
+    exportBtn.title = "复制该快照版本的 Markdown";
+    exportBtn.style.display = "none";
+    exportBtn.addEventListener("click", () => {
+      if (!this.lastBlocks.length) return;
+      const md = blocksToMarkdown(this.opts.currentTitle?.() ?? "", this.lastBlocks);
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = md;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      } catch {
+        /* fallthrough */
+      }
+      void navigator.clipboard?.writeText(md);
+    });
+    actions.appendChild(exportBtn);
+    this.exportBtn = exportBtn;
     const closeBtn = document.createElement("button");
     closeBtn.className = "btn";
     closeBtn.textContent = "关闭";
@@ -93,6 +119,7 @@ export class SnapshotViewer {
 
   private restoreBtn: HTMLElement | null = null;
   private diffBtn: HTMLElement | null = null;
+  private exportBtn: HTMLElement | null = null;
 
   private async showVersion(version: number, modal: HTMLElement) {
     this.diffMode = false;
@@ -113,6 +140,7 @@ export class SnapshotViewer {
       this.renderView(modal);
       if (this.restoreBtn) this.restoreBtn.style.display = "";
       if (this.diffBtn) this.diffBtn.style.display = "";
+      if (this.exportBtn) this.exportBtn.style.display = "";
     } catch {
       view.innerHTML = "<p>加载失败</p>";
     }
@@ -171,6 +199,7 @@ export class SnapshotViewer {
     this.modal = null;
     this.restoreBtn = null;
     this.diffBtn = null;
+    this.exportBtn = null;
     this.lastBlocks = [];
     this.lastViewedVersion = 0;
     this.diffMode = false;

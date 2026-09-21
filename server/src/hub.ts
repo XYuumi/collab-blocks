@@ -48,6 +48,8 @@ const MAX_TEXT_PER_OP = 100_000;
 /** doc.replace 限制 */
 const MAX_REPLACE_BLOCKS = 2000;
 const MAX_REPLACE_CHARS = 400_000;
+/** image 块 data URL 上限（约 300KB base64 ≈ 220KB 图片） */
+const MAX_IMAGE_SRC = 300_000;
 /** 限流：每窗口内最大消息数 */
 const RATE_WINDOW_MS = 2000;
 const RATE_MAX_MSGS = 120;
@@ -193,13 +195,13 @@ export class Hub {
           user = guest.user;
           token = guest.token;
         }
-        // 3) 角色：只读链接 → viewer；"仅创建者可编辑"开启时非 owner → viewer
+        // 3) 角色：只读链接 → viewer；"仅创建者可编辑"开启时非 owner（协作者除外）→ viewer
         const meta = this.store.getDocMeta(msg.docId);
         let role: DocRole;
         if (msg.mode === "view") {
           role = "viewer";
         } else if (meta?.ownerId && meta.enforceOwnerEdit && meta.ownerId !== user.id) {
-          role = "viewer";
+          role = this.store.isCollaborator(msg.docId, user.id) ? "editor" : "viewer";
         } else if (meta?.ownerId === user.id) {
           role = "owner";
         } else {
@@ -267,6 +269,7 @@ export class Hub {
             blockId: msg.blockId,
             offset: msg.offset,
             focusOffset: msg.focusOffset,
+            focusBlockId: msg.focusBlockId,
           },
           ws,
         );
@@ -330,6 +333,13 @@ export class Hub {
     for (const op of tx.ops) {
       if (op.type === "text.insert" && op.text.length > MAX_TEXT_PER_OP) return "单次插入文本过长";
       if (op.type === "block.insert" && op.text.length > MAX_TEXT_PER_OP) return "新块文本过长";
+      if (op.type === "block.insert" && op.src !== undefined) {
+        if (typeof op.src !== "string" || !op.src.startsWith("data:image/")) return "图片数据不合法";
+        if (op.src.length > MAX_IMAGE_SRC) return "图片过大（请压缩到 220KB 以内）";
+      }
+      if (op.type === "block.delete" && op.src !== undefined && typeof op.src === "string" && op.src.length > MAX_IMAGE_SRC) {
+        return "操作超限";
+      }
       if (op.type === "text.delete" && op.length > MAX_TEXT_PER_OP) return "操作长度超限";
       if (op.type === "doc.replace") {
         if (op.blocks.length > MAX_REPLACE_BLOCKS) return `恢复的文档过大（最多 ${MAX_REPLACE_BLOCKS} 块）`;

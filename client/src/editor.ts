@@ -25,7 +25,7 @@ export interface LockRenderInfo {
 }
 
 export interface EditorHooks {
-  onCursor: (blockId: string, offset: number, focusOffset?: number) => void;
+  onCursor: (blockId: string, offset: number, focusOffset?: number, focusBlockId?: string) => void;
   onFocusBlock: (blockId: string) => void;
   onBlurBlock: (blockId: string) => void;
   onStructureChanged: () => void;
@@ -266,14 +266,40 @@ export class Editor {
     wrap.dataset.type = type;
     if (block?.checked) wrap.classList.add("checked");
 
-    const text = document.createElement("div");
-    text.className = "block-text";
-    text.contentEditable = "plaintext-only";
-    text.dataset.id = id;
-    text.spellcheck = false;
-    text.textContent = block?.text ?? "";
-    text.dataset.empty = block?.text ? "" : "true";
-    wrap.appendChild(text);
+    if (type === "image") {
+      const img = document.createElement("img");
+      img.className = "block-image";
+      img.src = block?.src ?? "";
+      img.alt = block?.text || "图片";
+      img.draggable = false;
+      wrap.appendChild(img);
+      const del = document.createElement("button");
+      del.className = "block-image-del";
+      del.textContent = "×";
+      del.title = "删除图片";
+      del.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        if (this.readOnly) return;
+        const cur = this.model.block(id);
+        if (!cur) return;
+        const idx = this.model.blockIndex(id);
+        const prevId = idx > 0 ? this.model.blocks[idx - 1].id : null;
+        this.queue.submitImmediate(
+          [{ type: "block.delete", id, text: cur.text, prevId, blockType: "image", src: cur.src }],
+          { selBefore: null },
+        );
+      });
+      wrap.appendChild(del);
+    } else {
+      const text = document.createElement("div");
+      text.className = "block-text";
+      text.contentEditable = "plaintext-only";
+      text.dataset.id = id;
+      text.spellcheck = false;
+      text.textContent = block?.text ?? "";
+      text.dataset.empty = block?.text ? "" : "true";
+      wrap.appendChild(text);
+    }
 
     if (type === "todo") {
       const cb = document.createElement("div");
@@ -695,6 +721,23 @@ export class Editor {
     }
   }
 
+  /** 图片 → 压缩（长边 ≤1280，迭代降质到上限内）→ image 块事务 */
+  private async insertImageBlock(file: File) {
+    const dataUrl = await compressImage(file, 300_000).catch(() => null);
+    if (!dataUrl) {
+      this.hooks.onToast?.("图片处理失败或过大", "warn");
+      return;
+    }
+    const sel = this.currentSelection();
+    const anchorId = sel?.blockId ?? this.model.blocks[this.model.blocks.length - 1]?.id;
+    if (!anchorId) return;
+    const newId = uuid();
+    this.queue.submitImmediate(
+      [{ type: "block.insert", id: newId, afterId: anchorId, text: "", blockType: "image", src: dataUrl }],
+      { selBefore: sel, caretAfter: { blockId: newId, offset: 0 } },
+    );
+  }
+
   private selectionCollapsed(): boolean {
     const sel = getSelection();
     return !sel || sel.isCollapsed;
@@ -815,6 +858,20 @@ export class Editor {
 
   private onPaste(e: ClipboardEvent) {
     if (this.readOnly) return;
+    // 图片粘贴 → 压缩为 data URL 建 image 块
+    const items = e.clipboardData?.items;
+    if (items) {
+      for (const it of items) {
+        if (it.type.startsWith("image/")) {
+          const file = it.getAsFile();
+          if (file) {
+            e.preventDefault();
+            void this.insertImageBlock(file);
+            return;
+          }
+        }
+      }
+    }
     const target = (e.target as HTMLElement).closest<HTMLElement>(".block-text");
     if (!target?.dataset.id) return;
     e.preventDefault();
@@ -903,7 +960,7 @@ export class Editor {
     return rectAtOffset(el, offset);
   }
 
-  /** 远程选区高亮：块内 [start,end) 的逐行矩形（用于叠加层渲染） */
+  /** 远程选区高亮：块内 [start,end) 的逐行矩形（用于叠加层渲染；end 越界收敛到块尾） */
   rectsForRange(blockId: string, start: number, end: number): DOMRect[] {
     const el = this.textNodeOf(blockId);
     if (!el || end <= start) return [];
@@ -924,34 +981,83 @@ export class Editor {
     return rects;
   }
 
-  /** 当前选区信息（同块内返回 anchor/focus；跨块取 focus 块折叠），用于上报 */
-  currentSelectionInfo(): { blockId: string; offset: number; focusOffset?: number } | null {
+  /** 两个块之间的文档顺序信息（跨块远程选区用）；任一块不存在返回 null */
+  blocksBetween(a: string, b: string): { startId: string; endId: string; middles: string[] } | null {
+    const ia = this.model.blockIndex(a);
+    const ib = this.model.blockIndex(b);
+    if (ia < 0 || ib < 0) return null;
+    if (ia === ib) return { startId: a, endId: b, middles: [] };
+    // startId 恒为锚点块、endId 恒为终点块（渲染按各自矩形独立进行，与文档顺序无关）；
+    // middles 取两者之间的块（按文档顺序）
+    const middles: string[] = [];
+    for (let i = Math.min(ia, ib) + 1; i < Math.max(ia, ib); i++) middles.push(this.model.blocks[i].id);
+    return { startId: a, endId: b, middles };
+  }
+
+  /** 当前选区信息（同块返回 anchor/focus；跨块返回两端各自的块与偏移），用于上报 */
+  currentSelectionInfo(): { blockId: string; offset: number; focusOffset?: number; focusBlockId?: string } | null {
     const sel = getSelection();
     if (!sel || sel.rangeCount === 0) return null;
     const range = sel.getRangeAt(0);
-    const el = (range.commonAncestorContainer as Node).parentElement?.closest<HTMLElement>(".block-text")
-      ?? (document.activeElement as HTMLElement | null)?.closest?.(".block-text");
-    if (!el?.dataset.id) return null;
-    const blockId = el.dataset.id;
-    if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) {
-      // 跨块选区：只上报 focus 端插入点
-      const r2 = sel.focusNode ? (sel.focusNode.parentElement?.closest<HTMLElement>(".block-text") ?? null) : null;
-      if (r2?.dataset.id === blockId) {
-        const off = getCaretOffset(el);
-        return off === null ? null : { blockId, offset: off };
+    const anchorEl = (range.startContainer as Node).parentElement?.closest<HTMLElement>(".block-text") ?? null;
+    const focusEl = sel.focusNode ? (sel.focusNode.parentElement?.closest<HTMLElement>(".block-text") ?? null) : null;
+    if (anchorEl?.dataset.id) {
+      const offAt = (el: HTMLElement, container: Node, inner: number) => {
+        const pre = document.createRange();
+        pre.selectNodeContents(el);
+        pre.setEnd(container, inner);
+        return pre.toString().length;
+      };
+      const anchor = offAt(anchorEl, range.startContainer, range.startOffset);
+      if (focusEl && focusEl !== anchorEl && focusEl.dataset.id) {
+        const focus = offAt(focusEl, sel.focusNode!, sel.focusOffset);
+        return { blockId: anchorEl.dataset.id, offset: anchor, focusOffset: focus, focusBlockId: focusEl.dataset.id };
       }
-      const off = getCaretOffset(el);
-      return off === null ? null : { blockId, offset: off };
+      if (!focusEl || focusEl === anchorEl) {
+        const focusNode = sel.focusNode ?? range.endContainer;
+        const focus = focusEl ? offAt(focusEl, focusNode, sel.focusOffset) : anchor;
+        if (anchor === focus) return { blockId: anchorEl.dataset.id, offset: anchor };
+        return { blockId: anchorEl.dataset.id, offset: Math.min(anchor, focus), focusOffset: Math.max(anchor, focus) };
+      }
     }
-    const pre = range.cloneRange();
-    pre.selectNodeContents(el);
-    pre.setEnd(range.startContainer, range.startOffset);
-    const anchor = pre.toString().length;
-    const pre2 = range.cloneRange();
-    pre2.selectNodeContents(el);
-    pre2.setEnd(range.endContainer, range.endOffset);
-    const focus = pre2.toString().length;
-    if (anchor === focus) return { blockId, offset: anchor };
-    return { blockId, offset: Math.min(anchor, focus), focusOffset: Math.max(anchor, focus) };
+    // 锚点不在块内（如刚移出编辑器）：退化为 focus 块折叠点
+    if (focusEl?.dataset.id) {
+      const off = getCaretOffset(focusEl);
+      return off === null ? null : { blockId: focusEl.dataset.id, offset: off };
+    }
+    return null;
+  }
+}
+
+/** 图片压缩：长边 ≤1280，迭代降质直到 data URL 落入预算；返回 data URL 或 null */
+async function compressImage(file: File, budgetChars: number): Promise<string | null> {
+  const bitmapUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => {
+      const el = new Image();
+      el.onload = () => res(el);
+      el.onerror = () => rej(new Error("bad image"));
+      el.src = bitmapUrl;
+    });
+    const MAX_SIDE = 1280;
+    const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, w, h);
+    // PNG（截图/透明图）直接尝试；JPEG 迭代降质
+    let out = canvas.toDataURL("image/png");
+    if (out.length <= budgetChars) return out;
+    for (const q of [0.82, 0.7, 0.55, 0.4, 0.25]) {
+      out = canvas.toDataURL("image/jpeg", q);
+      if (out.length <= budgetChars) return out;
+    }
+    return out.length <= budgetChars * 1.1 ? out : null; // 最后一线：略超预算也接受（服务端硬上限 300K）
+  } finally {
+    URL.revokeObjectURL(bitmapUrl);
   }
 }

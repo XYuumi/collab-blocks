@@ -98,6 +98,7 @@ export function invertOp(op: Op): Op {
         prevId: op.afterId,
         blockType: op.blockType,
         checked: op.checked,
+        src: op.src,
       };
     case "block.delete":
       return {
@@ -107,6 +108,7 @@ export function invertOp(op: Op): Op {
         text: op.text ?? "",
         blockType: op.blockType,
         checked: op.checked,
+        src: op.src,
       };
     case "block.update":
       return {

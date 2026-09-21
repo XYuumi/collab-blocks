@@ -20,7 +20,7 @@ import { Outline } from "./outline";
 import { openShareModal } from "./share";
 import { Comments } from "./comments";
 import { Search } from "./search";
-import { blocksToMarkdown, sanitizeFilename } from "./markdown";
+import { blocksToMarkdown, blocksToPlainText, blocksToHtml, sanitizeFilename } from "./markdown";
 
 const PENDING_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 const PENDING_MAX_JSON = 256 * 1024;
@@ -141,6 +141,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
       status.toast(`已恢复到 v${snapshotViewer.lastViewedVersion}（可 Ctrl+Z 撤销）`, "info");
     },
     currentBlocks: () => model.blocks.map((b) => ({ ...b })),
+    currentTitle: () => titleInput.value,
   });
   const status = new StatusUI(
     (enforced) => net.send({ t: "config", lockEnforced: enforced }),
@@ -299,6 +300,14 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
       a.click();
       URL.revokeObjectURL(a.href);
     });
+    mk("复制纯文本", () => {
+      copyText(blocksToPlainText(model.blocks));
+      status.toast("已复制纯文本", "info");
+    });
+    mk("复制 HTML", () => {
+      copyText(blocksToHtml(titleInput.value, model.blocks));
+      status.toast("已复制 HTML", "info");
+    });
     document.body.appendChild(pop);
     const r = exportBtn.getBoundingClientRect();
     pop.style.top = `${r.bottom + 6}px`;
@@ -317,16 +326,19 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
 
   // ---------------- 光标/选区上报（节流 120ms） ----------------
   let cursorTimer: number | null = null;
-  let pendingCursor: { blockId: string; offset: number; focusOffset?: number } | null = null;
+  let pendingCursor: { blockId: string; offset: number; focusOffset?: number; focusBlockId?: string } | null = null;
   const flushCursor = () => {
     if (pendingCursor && net.open && role !== "viewer") {
       net.send({ t: "cursor", ...pendingCursor });
       pendingCursor = null;
     }
   };
-  const reportCursor = (blockId: string, offset: number, focusOffset?: number) => {
+  const reportCursor = (blockId: string, offset: number, focusOffset?: number, focusBlockId?: string) => {
     if (viewerMode) return;
-    pendingCursor = focusOffset !== undefined && focusOffset > offset ? { blockId, offset, focusOffset } : { blockId, offset };
+    // 跨块选区的两个 offset 分属不同块，不能比较大小：只要 focusBlockId 不同就算选区
+    const cross = !!focusBlockId && focusBlockId !== blockId;
+    pendingCursor =
+      focusOffset !== undefined && (focusOffset > offset || cross) ? { blockId, offset, focusOffset, focusBlockId } : { blockId, offset };
     if (cursorTimer !== null) return;
     cursorTimer = window.setTimeout(() => {
       cursorTimer = null;
@@ -335,7 +347,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
   };
   document.addEventListener("selectionchange", () => {
     const sel = editor.currentSelectionInfo();
-    if (sel) reportCursor(sel.blockId, sel.offset, sel.focusOffset);
+    if (sel) reportCursor(sel.blockId, sel.offset, sel.focusOffset, sel.focusBlockId);
   });
 
   let locks: LockManager | undefined;
@@ -506,7 +518,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
       case "cursor": {
         const user = presence.getUser(m.userId);
         if (user && user.userId !== me.userId) {
-          cursors.update(user, m.blockId, m.offset, m.focusOffset);
+          cursors.update(user, m.blockId, m.offset, m.focusOffset, m.focusBlockId);
         }
         break;
       }

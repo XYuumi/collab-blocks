@@ -27,6 +27,22 @@ export class Comments {
     private toast: (msg: string, kind?: "info" | "warn" | "error") => void,
   ) {}
 
+  /** 已读标记按文档持久化：刷新页面后未读不清零 */
+  private readSeenKey(): string {
+    return `ce-comments-seen-${this.docId}`;
+  }
+  private loadSeen(): number {
+    const v = Number(localStorage.getItem(this.readSeenKey()));
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  }
+  private saveSeen(ts: number) {
+    try {
+      localStorage.setItem(this.readSeenKey(), String(ts));
+    } catch {
+      /* ignore */
+    }
+  }
+
   setMe(userId: string, canWrite: boolean) {
     this.myUserId = userId;
     this.canWrite = canWrite;
@@ -63,7 +79,10 @@ export class Comments {
       if (!res.ok) return;
       const data = (await res.json()) as { comments: CommentData[] };
       this.list = data.comments;
-      this.lastSeenTs = Math.max(0, ...this.list.map((c) => c.createdAt));
+      const maxTs = Math.max(0, ...this.list.map((c) => c.createdAt));
+      const stored = this.loadSeen();
+      this.lastSeenTs = stored > 0 ? Math.min(stored, maxTs) : maxTs; // 首次进入视为全读；此后以持久标记为准
+      this.saveSeen(this.lastSeenTs);
       this.stats();
     } catch {
       /* 离线时静默 */
@@ -136,7 +155,8 @@ export class Comments {
   open(blockId: string | null) {
     this.close();
     this.openBlockId = blockId;
-    this.lastSeenTs = Math.max(0, ...this.list.map((c) => c.createdAt));
+    this.lastSeenTs = Math.max(this.lastSeenTs, ...this.list.map((c) => c.createdAt), 0);
+    this.saveSeen(this.lastSeenTs);
     const panel = document.createElement("aside");
     panel.className = "comments-panel";
     document.body.appendChild(panel);

@@ -83,6 +83,12 @@ export class Store {
         created_at INTEGER NOT NULL,
         resolved INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS doc_collaborators (
+        doc_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        added_at INTEGER NOT NULL,
+        PRIMARY KEY (doc_id, user_id)
+      );
     `);
     // 旧库幂等迁移：逐列补齐（已存在则忽略报错）
     for (const col of [
@@ -363,6 +369,7 @@ export class Store {
 
   hardDeleteDoc(docId: string) {
     this.db.prepare("DELETE FROM comments WHERE doc_id = ?").run(docId);
+    this.db.prepare("DELETE FROM doc_collaborators WHERE doc_id = ?").run(docId);
     this.db.prepare("DELETE FROM snapshots WHERE doc_id = ?").run(docId);
     this.db.prepare("DELETE FROM docs WHERE doc_id = ?").run(docId);
   }
@@ -452,6 +459,40 @@ export class Store {
     const next = row.resolved === 1 ? 0 : 1;
     this.db.prepare("UPDATE comments SET resolved = ? WHERE id = ?").run(next, commentId);
     return next === 1;
+  }
+
+  // ------------------------------------------------------------ 协作者名单
+
+  isCollaborator(docId: string, userId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM doc_collaborators WHERE doc_id = ? AND user_id = ?").get(docId, userId);
+  }
+
+  listCollaborators(docId: string): { userId: string; name: string; color: string; addedAt: number }[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT c.user_id, u.username, u.color, c.added_at FROM doc_collaborators c JOIN users u ON u.id = c.user_id WHERE c.doc_id = ? ORDER BY c.added_at ASC",
+        )
+        .all(docId) as { user_id: string; username: string; color: string; added_at: number }[]
+    ).map((r) => ({ userId: r.user_id, name: r.username, color: r.color, addedAt: r.added_at }));
+  }
+
+  /** 按用户名邀请（用户必须存在）；返回被邀请者或抛 StoreError */
+  addCollaborator(docId: string, username: string): { userId: string; name: string; color: string } {
+    const user = this.db
+      .prepare("SELECT id, username, color FROM users WHERE username = ? COLLATE NOCASE")
+      .get(username.trim()) as { id: string; username: string; color: string } | undefined;
+    if (!user) throw new StoreError(`用户「${username.trim()}」不存在`);
+    const meta = this.getDocMeta(docId);
+    if (meta?.ownerId === user.id) throw new StoreError("创建者本身就拥有编辑权限");
+    this.db
+      .prepare("INSERT OR IGNORE INTO doc_collaborators (doc_id, user_id, added_at) VALUES (?, ?, ?)")
+      .run(docId, user.id, Date.now());
+    return { userId: user.id, name: user.username, color: user.color };
+  }
+
+  removeCollaborator(docId: string, userId: string) {
+    this.db.prepare("DELETE FROM doc_collaborators WHERE doc_id = ? AND user_id = ?").run(docId, userId);
   }
 
   writeSnapshot(doc: DocSnapshot) {

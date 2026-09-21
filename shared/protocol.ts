@@ -26,12 +26,15 @@ export const PRESENCE_TIMEOUT_MS = 15_000;
 // ---------------------------------------------------------------------------
 
 /** 块类型：正文 / 标题 / 无序列表 / 待办 / 代码块 */
-export type BlockType = "text" | "h1" | "h2" | "h3" | "bullet" | "todo" | "code";
+export type BlockType = "text" | "h1" | "h2" | "h3" | "bullet" | "todo" | "code" | "image";
 
 export const BLOCK_TYPES: BlockType[] = ["text", "h1", "h2", "h3", "bullet", "todo", "code"];
 
+/** 协议层全部合法类型（含不在菜单中的 image） */
+const ALL_BLOCK_TYPES: BlockType[] = [...BLOCK_TYPES, "image"];
+
 export function isBlockType(v: unknown): v is BlockType {
-  return typeof v === "string" && (BLOCK_TYPES as string[]).includes(v);
+  return typeof v === "string" && (ALL_BLOCK_TYPES as string[]).includes(v);
 }
 
 /** 传输中的块（服务器内部还有 blockVersion/lastWriter 簿记，不下发客户端） */
@@ -41,6 +44,8 @@ export interface BlockData {
   text: string;
   /** todo 块的勾选状态 */
   checked?: boolean;
+  /** image 块的图片数据（data URL） */
+  src?: string;
 }
 
 export interface DocSnapshot {
@@ -66,6 +71,8 @@ export interface BlockInsertOp {
   blockType?: BlockType;
   /** 新块初始勾选态（todo，undo 重建保真） */
   checked?: boolean;
+  /** image 块的图片数据（data URL，服务端校验前缀与上限） */
+  src?: string;
 }
 export interface BlockDeleteOp {
   type: "block.delete";
@@ -75,6 +82,7 @@ export interface BlockDeleteOp {
   prevId?: string | null; // 被删块的前一个块 id（undo 时用于插回原位）
   blockType?: BlockType; // 被删块类型（undo 上下文）
   checked?: boolean;
+  src?: string; // 被删图片数据（undo 上下文）
 }
 /** 更新块属性（类型/勾选），参与块级 CAS，与文本操作同等地位 */
 export interface BlockUpdateOp {
@@ -178,7 +186,7 @@ export type DocRole = "owner" | "editor" | "viewer";
 export type ClientMsg =
   | { t: "hello"; docId: string; token?: string; name?: string; mode?: "view" }
   | { t: "tx"; tx: Tx }
-  | { t: "cursor"; blockId: string; offset: number; focusOffset?: number }
+  | { t: "cursor"; blockId: string; offset: number; focusOffset?: number; focusBlockId?: string }
   | { t: "lock.acquire"; blockId: string }
   | { t: "lock.release"; blockId: string }
   | {
@@ -215,7 +223,7 @@ export type ServerMsg =
     }
   | { t: "remote.op"; tx: Tx; version: number }
   | { t: "presence"; users: UserInfo[] }
-  | { t: "cursor"; userId: string; blockId: string; offset: number; focusOffset?: number }
+  | { t: "cursor"; userId: string; blockId: string; offset: number; focusOffset?: number; focusBlockId?: string }
   | { t: "lock.changed"; blockId: string; lock: LockState | null }
   | { t: "lock.denied"; blockId: string; holder: UserInfo }
   | { t: "config.changed"; config: DocConfig }

@@ -16,6 +16,7 @@ interface CursorEntry {
   blockId: string;
   offset: number;
   focusOffset?: number;
+  focusBlockId?: string;
   el: HTMLElement;
   selEls: HTMLElement[];
   ts: number;
@@ -44,7 +45,7 @@ export class RemoteCursors {
     }, 2000);
   }
 
-  update(user: UserInfo, blockId: string, offset: number, focusOffset?: number) {
+  update(user: UserInfo, blockId: string, offset: number, focusOffset?: number, focusBlockId?: string) {
     let c = this.cursors.get(user.userId);
     if (!c) {
       const el = document.createElement("div");
@@ -67,6 +68,7 @@ export class RemoteCursors {
     c.blockId = blockId;
     c.offset = offset;
     c.focusOffset = focusOffset;
+    c.focusBlockId = focusBlockId;
     c.ts = Date.now();
     c.el.classList.remove("stale");
     this.showLabel(c);
@@ -84,25 +86,43 @@ export class RemoteCursors {
     }, LABEL_VISIBLE_MS);
   }
 
-  /** 渲染/清除选区高亮（对方选中文字时） */
+  /** 渲染/清除选区高亮：同块选区高亮 [offset,focus)；跨块时锚点块高亮到块尾、中间块整块、终点块从头到 focus */
   private renderSelection(c: CursorEntry) {
     for (const s of c.selEls) s.remove();
     c.selEls = [];
-    const hasSel = c.focusOffset !== undefined && c.focusOffset > c.offset;
+    const cross = !!c.focusBlockId && c.focusBlockId !== c.blockId;
+    const hasSel = c.focusOffset !== undefined && (c.focusOffset > c.offset || cross);
     if (!hasSel) return;
-    const rects = this.editor.rectsForRange(c.blockId, c.offset, c.focusOffset!);
     const host = this.host.getBoundingClientRect();
-    for (const r of rects) {
-      const div = document.createElement("div");
-      div.className = "remote-selection";
-      div.style.background = c.color;
-      div.style.left = `${r.left - host.left}px`;
-      div.style.top = `${r.top - host.top}px`;
-      div.style.width = `${r.width}px`;
-      div.style.height = `${r.height}px`;
-      this.host.appendChild(div);
-      c.selEls.push(div);
+    const emit = (blockId: string, start: number, end: number) => {
+      for (const r of this.editor.rectsForRange(blockId, start, end)) {
+        const div = document.createElement("div");
+        div.className = "remote-selection";
+        div.style.background = c.color;
+        div.style.left = `${r.left - host.left}px`;
+        div.style.top = `${r.top - host.top}px`;
+        div.style.width = `${r.width}px`;
+        div.style.height = `${r.height}px`;
+        this.host.appendChild(div);
+        c.selEls.push(div);
+      }
+    };
+    const END = Number.MAX_SAFE_INTEGER; // rectsForRange 会把越界端点收敛到块末尾
+    const sameBlock = !c.focusBlockId || c.focusBlockId === c.blockId;
+    if (sameBlock) {
+      emit(c.blockId, Math.min(c.offset, c.focusOffset!), Math.max(c.offset, c.focusOffset!));
+      return;
     }
+    const spans = this.editor.blocksBetween(c.blockId, c.focusBlockId!);
+    if (!spans) {
+      emit(c.blockId, c.offset, c.focusOffset!); // 块可能已被删除：退化为单块表现
+      return;
+    }
+    const { startId, endId, middles } = spans;
+    // 起始块：从锚点高亮到块尾；中间块整块；终点块：从块首高亮到 focus
+    emit(startId, c.offset, END);
+    for (const m of middles) emit(m, 0, END);
+    emit(endId, 0, c.focusOffset!);
   }
 
   removeUser(userId: string) {
@@ -130,9 +150,11 @@ export class RemoteCursors {
   }
 
   private position(c: CursorEntry) {
-    // 有选区时光标画在选区终点
-    const caretOffset = c.focusOffset !== undefined && c.focusOffset > c.offset ? c.focusOffset : c.offset;
-    const rect = this.editor.blockRectAt(c.blockId, caretOffset);
+    // 有选区时光标画在选区终点（跨块时为终点块上的 focus 偏移）
+    const cross = !!c.focusBlockId && c.focusBlockId !== c.blockId;
+    const caretBlock = cross ? c.focusBlockId! : c.blockId;
+    const caretOffset = cross || (c.focusOffset !== undefined && c.focusOffset > c.offset) ? c.focusOffset! : c.offset;
+    const rect = this.editor.blockRectAt(caretBlock, caretOffset);
     if (!rect) {
       c.el.style.display = "none";
       return;

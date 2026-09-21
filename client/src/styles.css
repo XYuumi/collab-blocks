@@ -900,6 +900,61 @@ html.dark .offline-banner {
   border-top: 1px dashed var(--border-soft);
   padding-top: 12px;
 }
+/* 协作者名单 */
+.share-collab {
+  border-top: 1px dashed var(--border-soft);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.share-collab-head {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.share-collab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.share-collab-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.share-collab-row .btn {
+  margin-left: auto;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--danger);
+}
+.share-collab-add {
+  display: flex;
+  gap: 8px;
+}
+.share-collab-input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.share-collab-input:focus {
+  border-color: var(--accent);
+}
+.share-modal .share-body {
+  max-height: 76vh;
+  overflow-y: auto;
+}
+.snap-export {
+  margin-right: 8px;
+}
 .snap-restore {
   color: var(--accent);
   border-color: var(--accent);
