@@ -74,27 +74,10 @@ export async function mountHome(root: HTMLElement) {
   main.className = "home-main";
   page.appendChild(main);
 
-  /** 顶栏"介绍"重开按钮（介绍被收起时显示；幂等） */
-  const mountReopen = () => {
-    if (safeStorage.get("ce-intro-dismissed") !== "1") return;
-    if (header.querySelector(".home-intro-reopen")) return;
-    const re = document.createElement("button");
-    re.className = "btn home-intro-reopen";
-    re.textContent = "ⓘ 介绍";
-    re.title = "查看产品介绍";
-    re.addEventListener("click", () => {
-      safeStorage.remove("ce-intro-dismissed");
-      location.reload();
-    });
-    header.appendChild(re);
-  };
-
   const renderHeader = (logged: boolean, name?: string) => {
     header.innerHTML = `
       <div class="brand">协同编辑器<span class="brand-sub">Collab Editor</span></div>
       <div class="spacer"></div>`;
-    // 介绍被收起时，顶栏保留重新展开的入口
-    if (logged) mountReopen();
     if (logged) {
       const chip = document.createElement("span");
       chip.className = "user-chip";
@@ -138,63 +121,39 @@ export async function mountHome(root: HTMLElement) {
   const me = payload.user?.isGuest ? `${payload.user.name}（访客）` : payload.user?.name ?? "我";
   renderHeader(true, me);
 
-  // ---------------- 产品介绍（登录后也展示，可收起，偏好记忆在 localStorage） ----------------
+  // ---------------- 产品介绍（登录后也展示，同一头部按钮收放，平滑高度过渡） ----------------
   const intro = document.createElement("section");
-  intro.className = "home-intro collapsible";
+  intro.className = "home-intro";
   const introDismissed = safeStorage.get("ce-intro-dismissed") === "1";
   {
     const head = document.createElement("div");
     head.className = "home-intro-head";
     head.innerHTML = `<div class="home-intro-title">📚 这是什么？<span>Collab Blocks · 多人实时协作的块结构编辑器</span></div>`;
     const body = document.createElement("div");
-    body.className = "home-intro-body collapsible-body";
+    body.className = "home-intro-body";
     mountIntroCards(body, false);
-    const dismiss = document.createElement("button");
-    dismiss.className = "btn home-intro-dismiss";
-    dismiss.textContent = "收起";
-    dismiss.title = "收起介绍";
-    /** 平滑收起/展开：先测量实际高度，再过渡 max-height + opacity */
-    const setCollapsed = (collapsed: boolean) => {
+    const toggle = document.createElement("button");
+    toggle.className = "btn home-intro-toggle";
+    toggle.innerHTML = `<span class="toggle-text"></span><span class="toggle-arrow">▾</span>`;
+    /** 同一按钮收/放：整块 max-height + opacity 过渡，头部行始终可见 */
+    const setCollapsed = (collapsed: boolean, instant = false) => {
+      if (instant) (intro as HTMLElement).style.transition = "none";
+      intro.classList.toggle("collapsed", collapsed);
+      toggle.querySelector(".toggle-text")!.textContent = collapsed ? "展开介绍" : "收起介绍";
+      (toggle.querySelector(".toggle-arrow") as HTMLElement)!.style.transform = collapsed ? "rotate(-90deg)" : "";
       if (collapsed) {
-        body.style.maxHeight = `${body.scrollHeight}px`;
-        requestAnimationFrame(() => {
-          body.style.maxHeight = "0px";
-          body.style.opacity = "0";
-        });
-        body.addEventListener("transitionend", () => {
-          if (safeStorage.get("ce-intro-dismissed") === "1") intro.classList.add("gone");
-        }, { once: true });
         safeStorage.set("ce-intro-dismissed", "1");
-        dismiss.textContent = "展开";
-        dismiss.title = "展开介绍";
-        mountReopen(); // 收起动画期间顶栏入口就位
       } else {
-        intro.classList.remove("gone");
-        body.style.maxHeight = `${body.scrollHeight}px`;
-        body.style.opacity = "1";
-        body.addEventListener("transitionend", () => {
-          body.style.maxHeight = ""; // 展开完成后解除限制，允许内容自适应
-        }, { once: true });
         safeStorage.remove("ce-intro-dismissed");
-        dismiss.textContent = "收起";
-        dismiss.title = "收起介绍";
-        header.querySelector(".home-intro-reopen")?.remove();
       }
+      if (instant) requestAnimationFrame(() => ((intro as HTMLElement).style.transition = ""));
     };
-    dismiss.addEventListener("click", () => setCollapsed(safeStorage.get("ce-intro-dismissed") !== "1"));
-    head.appendChild(dismiss);
+    toggle.addEventListener("click", () => setCollapsed(!intro.classList.contains("collapsed")));
+    head.appendChild(toggle);
     intro.appendChild(head);
     intro.appendChild(body);
     main.appendChild(intro);
-    if (introDismissed) {
-      // 刷新进入已收起态：无动画直接收
-      body.style.transition = "none";
-      body.style.maxHeight = "0px";
-      body.style.opacity = "0";
-      dismiss.textContent = "展开";
-      dismiss.title = "展开介绍";
-      requestAnimationFrame(() => (body.style.transition = ""));
-    }
+    if (introDismissed) setCollapsed(true, true);
   }
 
   // 新建 + 回收站

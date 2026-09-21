@@ -798,7 +798,7 @@ html.dark .offline-banner {
   padding: 40px;
 }
 
-/* ---------------- 产品介绍卡片区 */
+/* ---------------- 产品介绍卡片区（同一按钮收放，整块高度过渡） */
 .home-intro {
   margin: 22px 0 26px;
   padding: 20px 22px;
@@ -806,12 +806,36 @@ html.dark .offline-banner {
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow);
+  overflow: hidden;
+  max-height: 600px;
+  opacity: 1;
+  transition: max-height 0.38s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease, padding 0.3s ease;
+}
+.home-intro.collapsed {
+  max-height: 44px;
+  opacity: 0.85;
+  padding-top: 10px;
+  padding-bottom: 6px;
+}
+.home-intro.collapsed .home-intro-grid,
+.home-intro.collapsed .home-intro-more {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.home-intro .home-intro-grid,
+.home-intro .home-intro-more {
+  opacity: 1;
+  transition: opacity 0.3s ease 0.12s;
 }
 .home-intro-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+.home-intro.collapsed .home-intro-head {
+  margin-bottom: 0;
 }
 .home-intro-title {
   font-size: 17px;
@@ -825,29 +849,21 @@ html.dark .offline-banner {
   font-weight: 400;
   color: var(--text-dim);
 }
-.home-intro-reopen {
+.home-intro-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
   color: var(--text-dim);
-}
-.home-intro-reopen:hover {
-  color: var(--accent);
-}
-.home-intro-dismiss {
-  font-size: 12px;
   padding: 4px 10px;
 }
-.home-intro-body {
-  overflow: hidden;
-  max-height: 900px; /* 展开态上限（内容自适应由展开完成后的清空兜底） */
-  opacity: 1;
-  transition: max-height 0.32s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease, margin 0.3s ease;
-  margin: 0;
+.home-intro-toggle:hover {
+  color: var(--accent);
 }
-.home-intro-body.collapsible-body {
-  margin: 0;
-}
-.home-intro.gone {
-  display: none;
+.toggle-arrow {
+  font-size: 11px;
+  transition: transform 0.35s ease;
+  display: inline-block;
 }
 .home-intro-grid {
   display: grid;
@@ -1051,6 +1067,11 @@ html.dark .offline-banner {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+}
+.share-seg-3 .share-seg-item {
+  font-size: 12px;
+  padding: 8px 6px;
+  white-space: nowrap;
 }
 .share-seg-item {
   flex: 1;

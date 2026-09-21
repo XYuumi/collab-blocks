@@ -33,8 +33,8 @@ export async function openShareModal(opts: {
 }) {
   const { docId, isOwner, onToast } = opts;
   const metaRes = await fetch(`/api/docs/${docId}/meta`, { headers: { Authorization: `Bearer ${getToken()}` } });
-  const meta = (await metaRes.json()) as { enforceOwnerEdit?: boolean };
-  let enforce = opts.enforceOwnerEdit || !!meta.enforceOwnerEdit;
+  const meta = (await metaRes.json()) as { enforceOwnerEdit?: boolean; accessMode?: "open" | "auth" | "restricted" };
+  let mode: "open" | "auth" | "restricted" = meta.accessMode ?? (meta.enforceOwnerEdit ? "restricted" : "open");
 
   const mask = document.createElement("div");
   mask.className = "modal-mask";
@@ -58,9 +58,10 @@ export async function openShareModal(opts: {
         isOwner
           ? `<div class="share-access">
                <div class="share-access-label">编辑权限</div>
-               <div class="share-seg">
-                 <button type="button" class="share-seg-item ${!enforce ? "active" : ""}" data-mode="open">开放编辑</button>
-                 <button type="button" class="share-seg-item ${enforce ? "active" : ""}" data-mode="restricted">受限编辑</button>
+               <div class="share-seg share-seg-3">
+                 <button type="button" class="share-seg-item ${mode === "open" ? "active" : ""}" data-mode="open">🟢 开放</button>
+                 <button type="button" class="share-seg-item ${mode === "auth" ? "active" : ""}" data-mode="auth">🔑 登录可编辑</button>
+                 <button type="button" class="share-seg-item ${mode === "restricted" ? "active" : ""}" data-mode="restricted">🔒 受限</button>
                </div>
                <div class="share-access-desc"></div>
              </div>
@@ -108,31 +109,37 @@ export async function openShareModal(opts: {
   bindCopy(".share-copy-edit", () => editUrl, "编辑链接");
   bindCopy(".share-copy-ro", () => roUrl, "只读链接");
 
-  // 两档权限选择器：开放编辑（任何人）/ 受限编辑（仅创建者与协作者）
+  // 三档权限选择器
   const descEl = box.querySelector<HTMLElement>(".share-access-desc");
   const syncAccessUI = () => {
-    descEl!.textContent = enforce
-      ? "仅创建者与协作者名单内的人可编辑，其他人（含访客）打开编辑链接也是只读。"
-      : "拿到编辑链接的任何人（含访客）都可编辑；只读链接的人始终只读。";
+    descEl!.textContent =
+      mode === "open"
+        ? "拿到编辑链接的任何人（含访客）都可编辑。"
+        : mode === "auth"
+          ? "注册登录的用户可编辑，访客只读。适合公开分享但不想被匿名改动。"
+          : "仅创建者与协作者名单内的人可编辑，其他人（含已登录用户）也是只读。";
     box.querySelectorAll<HTMLButtonElement>(".share-seg-item").forEach((b) => {
-      b.classList.toggle("active", (b.dataset.mode === "restricted") === enforce);
+      b.classList.toggle("active", b.dataset.mode === mode);
     });
   };
   syncAccessUI();
   box.querySelectorAll<HTMLButtonElement>(".share-seg-item").forEach((b) => {
     b.addEventListener("click", async () => {
-      const want = b.dataset.mode === "restricted";
-      if (want === enforce) return;
-      enforce = want;
+      const want = b.dataset.mode as "open" | "auth" | "restricted";
+      if (want === mode) return;
+      const prev = mode;
+      mode = want;
       syncAccessUI();
       const res = await fetch(`/api/docs/${docId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ enforceOwnerEdit: enforce }),
+        body: JSON.stringify({ accessMode: mode }),
       });
-      if (res.ok) onToast(enforce ? "已切换为受限编辑：仅创建者与协作者" : "已切换为开放编辑：任何人都可编辑", "info");
-      else {
-        enforce = !enforce;
+      if (res.ok) {
+        const label = mode === "open" ? "开放编辑（任何人）" : mode === "auth" ? "登录可编辑（访客只读）" : "受限编辑（仅协作者）";
+        onToast(`已切换为${label}`, "info");
+      } else {
+        mode = prev;
         syncAccessUI();
         onToast("设置失败", "error");
       }

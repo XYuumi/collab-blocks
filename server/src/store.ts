@@ -63,6 +63,7 @@ export class Store {
         title TEXT NOT NULL DEFAULT '未命名文档',
         ro_token TEXT,
         enforce_owner_edit INTEGER NOT NULL DEFAULT 0,
+        access_mode TEXT,
         updated_at INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS snapshots (
@@ -107,6 +108,7 @@ export class Store {
       "ALTER TABLE docs ADD COLUMN ro_token TEXT",
       "ALTER TABLE docs ADD COLUMN enforce_owner_edit INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE docs ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE docs ADD COLUMN access_mode TEXT",
       "ALTER TABLE docs ADD COLUMN icon TEXT",
       "ALTER TABLE docs ADD COLUMN deleted_at INTEGER",
     ]) {
@@ -297,18 +299,20 @@ export class Store {
 
   // ------------------------------------------------------------ 文档元信息
 
-  getDocMeta(docId: string): { docId: string; ownerId: string | null; title: string; enforceOwnerEdit: boolean; updatedAt: number; version: number } | null {
+  getDocMeta(docId: string): { docId: string; ownerId: string | null; title: string; icon: string; enforceOwnerEdit: boolean; accessMode: "open" | "auth" | "restricted"; updatedAt: number; version: number } | null {
     const row = this.db
-      .prepare("SELECT doc_id, owner_id, title, icon, enforce_owner_edit, updated_at, version FROM docs WHERE doc_id = ? AND deleted_at IS NULL")
+      .prepare("SELECT doc_id, owner_id, title, icon, enforce_owner_edit, access_mode, updated_at, version FROM docs WHERE doc_id = ? AND deleted_at IS NULL")
       .get(docId) as
-      | { doc_id: string; owner_id: string | null; title: string; enforce_owner_edit: number; updated_at: number; version: number }
+      | { doc_id: string; owner_id: string | null; title: string; icon: string; enforce_owner_edit: number; access_mode: string | null; updated_at: number; version: number }
       | undefined;
     return row
       ? {
           docId: row.doc_id,
           ownerId: row.owner_id,
           title: row.title,
+          icon: row.icon ?? "📄",
           enforceOwnerEdit: row.enforce_owner_edit === 1,
+          accessMode: (row.access_mode as "open" | "auth" | "restricted") ?? (row.enforce_owner_edit === 1 ? "restricted" : "open"),
           updatedAt: row.updated_at,
           version: row.version,
         }
@@ -352,6 +356,23 @@ export class Store {
   setDocTitle(docId: string, title: string) {
     this.db.prepare("UPDATE docs SET title = ? WHERE doc_id = ?").run(title.trim().slice(0, 60), docId);
     this.touchDoc(docId);
+  }
+
+  /** 设置访问模式：'open' | 'auth' | 'restricted' */
+  setAccessMode(docId: string, mode: "open" | "auth" | "restricted") {
+    this.db.prepare("UPDATE docs SET access_mode = ? WHERE doc_id = ?").run(mode, docId);
+    // 同步旧字段（兼容旧客户端读取）
+    this.db.prepare("UPDATE docs SET enforce_owner_edit = ? WHERE doc_id = ?").run(mode === "restricted" ? 1 : 0, docId);
+  }
+
+  /** 获取访问模式（access_mode 优先，回退到 enforceOwnerEdit） */
+  getAccessMode(docId: string): "open" | "auth" | "restricted" {
+    const row = this.db
+      .prepare("SELECT access_mode, enforce_owner_edit FROM docs WHERE doc_id = ? AND deleted_at IS NULL")
+      .get(docId) as { access_mode: string | null; enforce_owner_edit: number } | undefined;
+    if (!row) return "open";
+    if (row.access_mode === "open" || row.access_mode === "auth" || row.access_mode === "restricted") return row.access_mode;
+    return row.enforce_owner_edit === 1 ? "restricted" : "open";
   }
 
   setEnforceOwnerEdit(docId: string, on: boolean) {

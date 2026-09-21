@@ -175,6 +175,7 @@ export function buildServer(dbPath?: string): AppServer {
       docId: meta.docId,
       title: meta.title,
       enforceOwnerEdit: meta.enforceOwnerEdit,
+      accessMode: (meta as { accessMode?: string }).accessMode ?? (meta.enforceOwnerEdit ? "restricted" : "open"),
       isOwner: !!user && user.id === meta.ownerId,
     });
   });
@@ -197,6 +198,9 @@ export function buildServer(dbPath?: string): AppServer {
     const { title, enforceOwnerEdit } = req.body ?? {};
     if (typeof title === "string" && title.trim()) store.setDocTitle(meta.docId, title);
     if (typeof enforceOwnerEdit === "boolean") store.setEnforceOwnerEdit(meta.docId, enforceOwnerEdit);
+    if (req.body?.accessMode === "open" || req.body?.accessMode === "auth" || req.body?.accessMode === "restricted") {
+      store.setAccessMode(meta.docId, req.body.accessMode);
+    }
     res.json({ ok: true, meta: store.getDocMeta(meta.docId) });
   });
 
@@ -347,7 +351,8 @@ export function buildServer(dbPath?: string): AppServer {
         res.status(404).json({ error: "文档不存在" });
         return;
       }
-      if (!meta.enforceOwnerEdit) {
+      const mode = store.getAccessMode(req.params.docId);
+      if (mode === "open") {
         res.status(400).json({ error: "本文档已开放编辑，无需申请" });
         return;
       }
