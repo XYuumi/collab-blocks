@@ -160,6 +160,52 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
   back.href = "/";
   back.textContent = "← 文档";
   docBar.appendChild(back);
+  const docIcon = document.createElement("span");
+  docIcon.className = "docbar-icon";
+  docIcon.textContent = "📄";
+  docIcon.title = "点击更换图标";
+  docIcon.addEventListener("click", () => {
+    if (!isOwner) return;
+    const icons = ["📄", "📋", "✅", "📊", "💡", "📌", "🎯", "🚀", "🔥", "⭐", "📝", "📁", "🎨", "🔧", "🔍"];
+    document.querySelector(".icon-pop")?.remove();
+    const pop = document.createElement("div");
+    pop.className = "icon-pop export-pop";
+    pop.style.flexDirection = "row";
+    pop.style.flexWrap = "wrap";
+    pop.style.maxWidth = "200px";
+    pop.style.gap = "2px";
+    for (const ic of icons) {
+      const b = document.createElement("button");
+      b.className = "export-item";
+      b.textContent = ic;
+      b.style.fontSize = "18px";
+      b.style.padding = "4px 6px";
+      b.addEventListener("click", async () => {
+        pop.remove();
+        docIcon.textContent = ic;
+        await fetch(`/api/docs/${docId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify({ icon: ic }),
+        });
+      });
+      pop.appendChild(b);
+    }
+    document.body.appendChild(pop);
+    const r = docIcon.getBoundingClientRect();
+    pop.style.top = `${r.bottom + 4}px`;
+    pop.style.left = `${r.left}px`;
+    setTimeout(() => {
+      const close = (e: MouseEvent) => {
+        if (!pop.contains(e.target as Node) && e.target !== docIcon) {
+          pop.remove();
+          document.removeEventListener("mousedown", close);
+        }
+      };
+      document.addEventListener("mousedown", close);
+    }, 0);
+  });
+  docBar.appendChild(docIcon);
   const titleInput = document.createElement("input");
   titleInput.className = "docbar-title";
   titleInput.maxLength = 60;
@@ -256,6 +302,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
     .then((meta: { title?: string; isOwner?: boolean; enforceOwnerEdit?: boolean } | null) => {
       if (!meta) return;
       titleInput.value = meta.title ?? "";
+      docIcon.textContent = (meta as { icon?: string }).icon ?? "📄";
       docEnforce = !!meta.enforceOwnerEdit;
       isOwner = !!meta.isOwner && !viewerMode;
       titleInput.disabled = !isOwner;
@@ -508,7 +555,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
         editor.setReadOnly(isViewer);
         roBadge.style.display = isViewer ? "" : "none";
         status.lockToggle.disabled = isViewer;
-        comments.setMe(m.you.userId, !isViewer);
+        comments.setMe(m.you.userId, !isViewer, m.you.name);
         updateRequestBtn();
         if (isViewer && !viewerMode) {
           status.toast("创建者已开启「仅创建者可编辑」，当前为只读模式", "info");

@@ -209,11 +209,11 @@ export async function mountHome(root: HTMLElement) {
   const importBtn = document.createElement("button");
   importBtn.className = "btn home-import";
   importBtn.textContent = "⇪ 导入 Markdown";
-  importBtn.title = "上传 .md 文件生成新文档（标题/列表/待办/代码块）";
+  importBtn.title = "上传 .md / .txt 文件生成新文档";
   bar.appendChild(importBtn);
   const fileInput = document.createElement("input");
   fileInput.type = "file";
-  fileInput.accept = ".md,.markdown,text/markdown";
+  fileInput.accept = ".md,.markdown,.txt,text/markdown,text/plain";
   fileInput.style.display = "none";
   bar.appendChild(fileInput);
   importBtn.addEventListener("click", () => fileInput.click());
@@ -226,9 +226,13 @@ export async function mountHome(root: HTMLElement) {
     }
     try {
       const text = await file.text();
-      const blocks = markdownToBlocks(text, () => uuid());
+      const isTxt = /\.txt$/i.test(file.name);
+      const blocks = isTxt
+        ? text.split(/\n\s*\n/).filter((p) => p.trim()).map((p) => ({ id: uuid(), type: "text" as const, text: p.trim() }))
+        : markdownToBlocks(text, () => uuid());
+      if (blocks.length === 0) blocks.push({ id: uuid(), type: "text", text: "" });
       const first = blocks[0];
-      const title = first && (first.type === "h1" || first.type === "h2" || first.type === "h3") ? first.text : file.name.replace(/\.(md|markdown)$/i, "");
+      const title = first && (first.type === "h1" || first.type === "h2" || first.type === "h3") ? first.text : file.name.replace(/\.(md|markdown|txt)$/i, "");
       const r = await fetch("/api/docs", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
@@ -246,18 +250,7 @@ export async function mountHome(root: HTMLElement) {
   newBtn.textContent = "＋ 新建文档";
   bar.appendChild(newBtn);
   main.appendChild(bar);
-  newBtn.addEventListener("click", async () => {
-    const title = prompt("文档标题", "未命名文档");
-    if (title === null) return;
-    const r = await fetch("/api/docs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-      body: JSON.stringify({ title }),
-    });
-    const created = (await r.json()) as { docId?: string; error?: string };
-    if (created.docId) location.href = `/d/${created.docId}`;
-    else alert(created.error ?? "创建失败");
-  });
+  newBtn.addEventListener("click", () => openTemplatePicker());
   trashBtn.addEventListener("click", () => void openTrash());
 
   const list = document.createElement("div");
@@ -379,5 +372,88 @@ export async function mountHome(root: HTMLElement) {
     } catch {
       body.innerHTML += `<p class="home-empty">加载失败</p>`;
     }
+  }
+}
+
+// ---------------------------------------------------------------- 模板
+
+interface DocTemplate {
+  id: string;
+  name: string;
+  icon: string;
+  desc: string;
+  blocks: { type: string; text: string; checked?: boolean }[];
+}
+
+const TEMPLATES: DocTemplate[] = [
+  { id: "blank", name: "空白文档", icon: "📄", desc: "从零开始", blocks: [{ type: "h1", text: "未命名文档" }] },
+  {
+    id: "meeting", name: "会议纪要", icon: "📋", desc: "议题 / 决议 / 待办",
+    blocks: [
+      { type: "h1", text: "会议纪要" },
+      { type: "h2", text: "基本信息" },
+      { type: "bullet", text: "时间：" },
+      { type: "bullet", text: "参会人：" },
+      { type: "h2", text: "议题与讨论" },
+      { type: "text", text: "" },
+      { type: "h2", text: "决议" },
+      { type: "bullet", text: "" },
+      { type: "h2", text: "待办" },
+      { type: "todo", text: "", checked: false },
+    ],
+  },
+  {
+    id: "todo", name: "待办清单", icon: "✅", desc: "任务与进度",
+    blocks: [
+      { type: "h1", text: "待办清单" },
+      { type: "todo", text: "第一个任务", checked: false },
+      { type: "todo", text: "第二个任务", checked: false },
+    ],
+  },
+  {
+    id: "weekly", name: "周报", icon: "📊", desc: "本周 / 下周",
+    blocks: [
+      { type: "h1", text: "周报" },
+      { type: "h2", text: "本周完成" },
+      { type: "bullet", text: "" },
+      { type: "h2", text: "下周计划" },
+      { type: "bullet", text: "" },
+    ],
+  },
+];
+
+function openTemplatePicker() {
+  document.querySelector(".template-modal")?.remove();
+  const mask = document.createElement("div");
+  mask.className = "modal-mask template-modal";
+  const box = document.createElement("div");
+  box.className = "template-box";
+  box.innerHTML = '<div class="share-head"><b>选择模板</b><button class="btn tpl-close">关闭</button></div><div class="template-grid"></div>';
+  mask.appendChild(box);
+  document.body.appendChild(mask);
+  box.querySelector(".tpl-close")!.addEventListener("click", () => mask.remove());
+  mask.addEventListener("click", (e) => {
+    if (e.target === mask) mask.remove();
+  });
+  const grid = box.querySelector(".template-grid")!;
+  for (const tpl of TEMPLATES) {
+    const card = document.createElement("button");
+    card.className = "template-card";
+    card.innerHTML = '<div class="template-icon"></div><h3></h3><p></p>';
+    card.querySelector(".template-icon")!.textContent = tpl.icon;
+    card.querySelector("h3")!.textContent = tpl.name;
+    card.querySelector("p")!.textContent = tpl.desc;
+    card.addEventListener("click", async () => {
+      const blocks = tpl.blocks.map((b) => ({ ...b, id: uuid() }));
+      const r = await fetch("/api/docs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ title: tpl.blocks[0]?.text ?? tpl.name, blocks }),
+      });
+      const created = (await r.json()) as { docId?: string; error?: string };
+      if (created.docId) location.href = `/d/${created.docId}`;
+      else alert(created.error ?? "创建失败");
+    });
+    grid.appendChild(card);
   }
 }

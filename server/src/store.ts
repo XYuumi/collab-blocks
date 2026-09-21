@@ -83,6 +83,16 @@ export class Store {
         created_at INTEGER NOT NULL,
         resolved INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS permission_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        user_name TEXT NOT NULL,
+        message TEXT,
+        created_at INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        UNIQUE(doc_id, user_id, status)
+      );
       CREATE TABLE IF NOT EXISTS doc_collaborators (
         doc_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
@@ -97,6 +107,7 @@ export class Store {
       "ALTER TABLE docs ADD COLUMN ro_token TEXT",
       "ALTER TABLE docs ADD COLUMN enforce_owner_edit INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE docs ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE docs ADD COLUMN icon TEXT",
       "ALTER TABLE docs ADD COLUMN deleted_at INTEGER",
     ]) {
       try {
@@ -288,7 +299,7 @@ export class Store {
 
   getDocMeta(docId: string): { docId: string; ownerId: string | null; title: string; enforceOwnerEdit: boolean; updatedAt: number; version: number } | null {
     const row = this.db
-      .prepare("SELECT doc_id, owner_id, title, enforce_owner_edit, updated_at, version FROM docs WHERE doc_id = ? AND deleted_at IS NULL")
+      .prepare("SELECT doc_id, owner_id, title, icon, enforce_owner_edit, updated_at, version FROM docs WHERE doc_id = ? AND deleted_at IS NULL")
       .get(docId) as
       | { doc_id: string; owner_id: string | null; title: string; enforce_owner_edit: number; updated_at: number; version: number }
       | undefined;
@@ -309,7 +320,7 @@ export class Store {
     return (
       this.db
         .prepare(
-          "SELECT doc_id, owner_id, title, updated_at, version FROM docs WHERE deleted_at IS NULL AND (owner_id = ? OR owner_id IS NULL) ORDER BY (owner_id = ?) DESC, updated_at DESC",
+          "SELECT doc_id, owner_id, title, icon, updated_at, version FROM docs WHERE deleted_at IS NULL AND (owner_id = ? OR owner_id IS NULL) ORDER BY (owner_id = ?) DESC, updated_at DESC",
         )
         .all(userId, userId) as { doc_id: string; owner_id: string | null; title: string; updated_at: number; version: number }[]
     ).map((r) => ({
@@ -332,6 +343,10 @@ export class Store {
       )
       .run(docId, JSON.stringify({ blocks }), ownerId, safeTitle, Date.now());
     return { docId, title: safeTitle };
+  }
+
+  setDocIcon(docId: string, icon: string) {
+    this.db.prepare("UPDATE docs SET icon = ? WHERE doc_id = ?").run(icon.slice(0, 4), docId);
   }
 
   setDocTitle(docId: string, title: string) {
@@ -402,6 +417,42 @@ export class Store {
   touchDoc(docId: string) {
     this.db.prepare("UPDATE docs SET updated_at = ? WHERE doc_id = ?").run(Date.now(), docId);
   }
+  // ------------------------------------------------------------ 权限申请
+
+  addPermissionRequest(docId: string, user: { id: string; username: string }, message?: string): { id: number } | { error: string } {
+    const existing = this.db
+      .prepare("SELECT id FROM permission_requests WHERE doc_id = ? AND user_id = ? AND status = 'pending'")
+      .get(docId, user.id) as { id: number } | undefined;
+    if (existing) return { error: "已有一条待处理的申请" };
+    if (this.isCollaborator(docId, user.id)) return { error: "你已是协作者" };
+    const r = this.db
+      .prepare("INSERT INTO permission_requests (doc_id, user_id, user_name, message, created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')")
+      .run(docId, user.id, user.username, (message ?? "").slice(0, 200), Date.now());
+    return { id: Number(r.lastInsertRowid) };
+  }
+
+  listPendingRequests(docId: string): PermissionRequest[] {
+    return (
+      this.db
+        .prepare("SELECT id, user_id, user_name, message, created_at FROM permission_requests WHERE doc_id = ? AND status = 'pending' ORDER BY created_at ASC")
+        .all(docId) as { id: number; user_id: string; user_name: string; message: string | null; created_at: number }[]
+    ).map((r) => ({ id: r.id, userId: r.user_id, userName: r.user_name, message: r.message, createdAt: r.created_at }));
+  }
+
+  resolvePermissionRequest(requestId: number, approve: boolean): { userId: string; docId: string } | null {
+    const row = this.db
+      .prepare("SELECT id, doc_id, user_id FROM permission_requests WHERE id = ? AND status = 'pending'")
+      .get(requestId) as { id: number; doc_id: string; user_id: string } | undefined;
+    if (!row) return null;
+    this.db.prepare("UPDATE permission_requests SET status = ? WHERE id = ?").run(approve ? "approved" : "rejected", requestId);
+    if (approve) {
+      this.db
+        .prepare("INSERT OR IGNORE INTO doc_collaborators (doc_id, user_id, added_at) VALUES (?, ?, ?)")
+        .run(row.doc_id, row.user_id, Date.now());
+    }
+    return { userId: row.user_id, docId: row.doc_id };
+  }
+
 
   // ------------------------------------------------------------ 块级评论
 
@@ -547,4 +598,14 @@ export function seedDoc(docId: string): DocState {
       mk("这一行留给你们做“同时编辑同一个块”的冲突实验。"),
     ],
   };
+}
+
+// ------------------------------------------------------------ 权限申请
+
+export interface PermissionRequest {
+  id: number;
+  userId: string;
+  userName: string;
+  message: string | null;
+  createdAt: number;
 }

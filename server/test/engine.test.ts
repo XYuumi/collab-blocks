@@ -221,7 +221,7 @@ test("block.move：重排生效、幂等重放、锚点缺失退化为末尾", (
   e.submit(tx(e, "u1", [{ type: "block.move", id: "c", beforeId: null }]));
   assert.deepEqual(e.state.blocks.map((b) => b.id), ["b1", "b2", "b", "a", "c"]);
   // 目标块不存在 → no-op
-  const r3 = e.submit(tx(e, "u1", [{ type: "block.move", id: "ghost", afterId: null }]));
+  const r3 = e.submit(tx(e, "u1", [{ type: "block.move", id: "ghost", beforeId: null }]));
   assert.ok(r3.ok);
   assert.equal(e.state.blocks.length, 5);
 });

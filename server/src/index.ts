@@ -334,6 +334,75 @@ export function buildServer(dbPath?: string): AppServer {
     res.json({ ok: true });
   });
 
+  // ------------------------------------------------------------ 权限申请
+  app.post("/api/docs/:docId/request", (req: Request, res: Response) => {
+    try {
+      const user = store.resolveToken(readToken(req));
+      if (!user) {
+        res.status(401).json({ error: "请先登录" });
+        return;
+      }
+      const meta = store.getDocMeta(req.params.docId);
+      if (!meta) {
+        res.status(404).json({ error: "文档不存在" });
+        return;
+      }
+      if (!meta.enforceOwnerEdit) {
+        res.status(400).json({ error: "本文档已开放编辑，无需申请" });
+        return;
+      }
+      if (meta.ownerId === user.id) {
+        res.status(400).json({ error: "你是创建者，无需申请" });
+        return;
+      }
+      const { message } = req.body ?? {};
+      const r = store.addPermissionRequest(req.params.docId, user, typeof message === "string" ? message : undefined);
+      if ("error" in r) {
+        res.status(400).json({ error: r.error });
+        return;
+      }
+      // 通知 owner（如果有在线会话则刷新分享面板）
+      if (meta.ownerId) hub.refreshUser(meta.ownerId);
+      res.json({ ok: true });
+    } catch (err) {
+      authErr(res, err);
+    }
+  });
+
+  app.get("/api/docs/:docId/requests", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录" });
+      return;
+    }
+    const meta = store.getDocMeta(req.params.docId);
+    if (!meta || meta.ownerId !== user.id) {
+      res.status(403).json({ error: "只有创建者可以查看申请" });
+      return;
+    }
+    res.json({ requests: store.listPendingRequests(req.params.docId) });
+  });
+
+  app.post("/api/docs/:docId/requests/:id/:action", (req: Request, res: Response) => {
+    const user = store.resolveToken(readToken(req));
+    if (!user) {
+      res.status(401).json({ error: "请先登录" });
+      return;
+    }
+    const meta = store.getDocMeta(req.params.docId);
+    if (!meta || meta.ownerId !== user.id) {
+      res.status(403).json({ error: "只有创建者可以处理申请" });
+      return;
+    }
+    const approve = req.params.action === "approve";
+    const result = store.resolvePermissionRequest(Number(req.params.id), approve);
+    if (!result) {
+      res.status(404).json({ error: "申请不存在或已处理" });
+      return;
+    }
+    res.json({ ok: true, approved: approve });
+  });
+
   // ------------------------------------------------------------ 块级评论
   /** 与 hello 一致的角色判定：enforce 开启时非 owner 不可评论 */
   const canComment = (meta: { ownerId: string | null; enforceOwnerEdit: boolean }, userId: string) =>

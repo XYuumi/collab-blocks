@@ -176,6 +176,56 @@ export async function openShareModal(opts: {
     }
   };
   void renderCollabs();
+  // 待审权限申请（owner）
+  const reqSection = document.createElement("div");
+  reqSection.className = "share-requests";
+  const renderRequests = async () => {
+    if (!isOwner) return;
+    try {
+      const res = await fetch(`/api/docs/${docId}/requests`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (!res.ok) return;
+      const data = (await res.json()) as { requests: { id: number; userName: string; message: string | null; createdAt: number }[] };
+      reqSection.innerHTML = "";
+      if (data.requests.length === 0) return;
+      const head = document.createElement("div");
+      head.className = "share-collab-head";
+      head.textContent = `权限申请（${data.requests.length} 条待处理）`;
+      reqSection.appendChild(head);
+      for (const req of data.requests) {
+        const row = document.createElement("div");
+        row.className = "share-req-row";
+        const info = document.createElement("div");
+        info.className = "share-req-info";
+        info.innerHTML = `<b></b><span></span>`;
+        info.querySelector("b")!.textContent = req.userName;
+        info.querySelector("span")!.textContent = req.message || "申请编辑权限";
+        const approve = document.createElement("button");
+        approve.className = "btn";
+        approve.textContent = "同意";
+        approve.addEventListener("click", async () => {
+          await fetch(`/api/docs/${docId}/requests/${req.id}/approve`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } });
+          onToast(`已同意 ${req.userName} 的申请`, "info");
+          void renderCollabs();
+          void renderRequests();
+        });
+        const reject = document.createElement("button");
+        reject.className = "btn";
+        reject.textContent = "拒绝";
+        reject.addEventListener("click", async () => {
+          await fetch(`/api/docs/${docId}/requests/${req.id}/reject`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } });
+          void renderRequests();
+        });
+        row.appendChild(info);
+        row.appendChild(approve);
+        row.appendChild(reject);
+        reqSection.appendChild(row);
+      }
+    } catch { /* 静默 */ }
+  };
+  void renderRequests();
+  const body = box.querySelector(".share-body");
+  if (body && isOwner) body.appendChild(reqSection);
+
   const collabInput = box.querySelector<HTMLInputElement>(".share-collab-input");
   const addCollab = async () => {
     const username = collabInput?.value.trim() ?? "";

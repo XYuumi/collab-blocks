@@ -44,9 +44,10 @@ export class Comments {
     }
   }
 
-  setMe(userId: string, canWrite: boolean) {
+  setMe(userId: string, canWrite: boolean, myName?: string) {
     this.myUserId = userId;
     this.canWrite = canWrite;
+    if (myName) this.myName = myName;
   }
 
   get comments(): CommentData[] {
@@ -95,32 +96,43 @@ export class Comments {
     if (this.list.some((c) => c.id === comment.id)) return;
     this.list.push(comment);
     if (comment.userId !== this.myUserId) {
-      this.toast(`${comment.name} 评论了「${this.snippet(comment.blockId)}」`, "info");
+      if (this.isMentioned(comment)) {
+        this.toast(`📢 ${comment.name} @提及了你`, "warn");
+      } else {
+        this.toast(`${comment.name} 评论了「${this.snippet(comment.blockId)}」`, "info");
+      }
       this.notify(comment);
     }
     this.stats();
     if (this.panel) this.render();
   }
 
-  /** 桌面通知：仅当已授权、开关开启且页面处于后台时（前台已有 Toast） */
+  /** 我是否被 @提及 */
+  isMentioned(comment: CommentData): boolean {
+    if (!this.myUserId || !this.myName) return false;
+    return comment.body.includes("@" + this.myName);
+  }
+  private myName = "";
+
+  /** 桌面通知：被 @提及时即便在前台也通知；普通评论仅后台时 */
   private notify(comment: CommentData) {
     try {
       if (typeof Notification === "undefined") return;
       if (Notification.permission !== "granted") return;
       if (safeStorage.get("ce-notify") === "0") return;
-      if (!document.hidden) return;
-      const n = new Notification(`💬 ${comment.name} 评论了你`, {
+      const mentioned = this.isMentioned(comment);
+      if (!document.hidden && !mentioned) return;
+      const prefix = mentioned ? "@你 " : "";
+      const n = new Notification("💬 " + prefix + comment.name + " 评论了你", {
         body: comment.body.slice(0, 80),
-        tag: `comment-${comment.id}`,
+        tag: "comment-" + comment.id,
       });
       n.onclick = () => {
         window.focus();
         this.open(comment.blockId);
         n.close();
       };
-    } catch {
-      /* 通知不可用则静默 */
-    }
+    } catch { /* 静默 */ }
   }
 
   async add(blockId: string, body: string) {
@@ -290,7 +302,13 @@ export class Comments {
         }
         const bodyText = document.createElement("div");
         bodyText.className = "comment-body";
-        bodyText.textContent = c.body;
+        // @提及高亮（先转义再标记，防 XSS）
+        const escaped = c.body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const myName = this.myName;
+        bodyText.innerHTML = escaped.replace(
+          /@([^\s@，。！？]+)/g,
+          (m) => '<span class="comment-mention' + (m.slice(1) === myName ? " me" : "") + '">' + m + "</span>",
+        );
         item.appendChild(meta);
         item.appendChild(bodyText);
         thread.appendChild(item);

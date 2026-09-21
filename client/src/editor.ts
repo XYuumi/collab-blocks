@@ -150,6 +150,11 @@ export class Editor {
   lockInfoProvider: ((blockId: string) => LockRenderInfo | undefined) | null = null;
   /** 评论计数提供者：块 → 未解决评论数（0 隐藏气泡） */
   commentsProvider: ((blockId: string) => number) | null = null;
+  /** 多选状态：Shift+点击 或 Shift+↑↓ 添加 */
+  selectedIds = new Set<string>();
+  /** 多选浮动工具栏 */
+  private selToolbar: HTMLElement | null = null;
+
   /** "/" 唤起的块类型菜单状态 */
   private slash: { blockId: string; el: HTMLElement; active: number } | null = null;
   /** 只读模式（viewer / 只读链接）：禁一切编辑入口 */
@@ -209,6 +214,102 @@ export class Editor {
     this.el.classList.toggle("readonly", v);
     if (v) this.closeSlashMenu();
     this.renderLocks();
+  }
+
+  /** 清除多选 */
+  clearSelection() {
+    this.selectedIds.clear();
+    for (const [, wrap] of this.nodes) wrap.classList.remove("block-selected");
+    this.selToolbar?.remove();
+    this.selToolbar = null;
+  }
+
+  /** 切换块的选中态 */
+  toggleSelect(blockId: string, on: boolean) {
+    if (on) this.selectedIds.add(blockId);
+    else this.selectedIds.delete(blockId);
+    this.nodes.get(blockId)?.classList.toggle("block-selected", on);
+    this.updateSelToolbar();
+  }
+
+  /** 多选浮动工具栏 */
+  private updateSelToolbar() {
+    if (this.selectedIds.size === 0) {
+      this.selToolbar?.remove();
+      this.selToolbar = null;
+      return;
+    }
+    if (!this.selToolbar) {
+      const bar = document.createElement("div");
+      bar.className = "sel-toolbar";
+      document.body.appendChild(bar);
+      this.selToolbar = bar;
+    }
+    const n = this.selectedIds.size;
+    this.selToolbar.innerHTML = "";
+    const label = document.createElement("span");
+    label.className = "sel-count";
+    label.textContent = `已选 ${n} 块`;
+    this.selToolbar.appendChild(label);
+    const mkAction = (text: string, fn: () => void, danger = false) => {
+      const b = document.createElement("button");
+      b.className = "btn" + (danger ? " sel-danger" : "");
+      b.textContent = text;
+      b.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        fn();
+      });
+      this.selToolbar!.appendChild(b);
+    };
+    mkAction("🗑 删除", () => this.batchDelete());
+    for (const t of ["text", "h1", "h2", "h3", "bullet", "todo", "code"] as const) {
+      mkAction(t === "text" ? "正文" : t.toUpperCase(), () => this.batchSetType(t));
+    }
+    // 定位到选中区域上方
+    const first = [...this.selectedIds][0];
+    const wrap = this.nodes.get(first);
+    if (wrap) {
+      const r = wrap.getBoundingClientRect();
+      this.selToolbar.style.left = `${Math.max(10, r.left)}px`;
+      this.selToolbar.style.top = `${Math.max(10, r.top - 44)}px`;
+    }
+  }
+
+  /** 批量删除选中块 */
+  private batchDelete() {
+    if (this.readOnly || this.selectedIds.size === 0) return;
+    const ops: Op[] = [];
+    for (const id of this.selectedIds) {
+      const b = this.model.block(id);
+      if (b) {
+        const i = this.model.blockIndex(id);
+        ops.push({
+          type: "block.delete",
+          id,
+          text: b.text,
+          prevId: i > 0 ? this.model.blocks[i - 1].id : null,
+          blockType: b.type,
+          ...(b.src ? { src: b.src } : {}),
+          ...(b.checked !== undefined ? { checked: b.checked } : {}),
+        });
+      }
+    }
+    if (ops.length > 0) this.queue.submitImmediate(ops, { selBefore: null });
+    this.clearSelection();
+  }
+
+  /** 批量设置选中块类型 */
+  private batchSetType(type: BlockType) {
+    if (this.readOnly || this.selectedIds.size === 0) return;
+    const ops: Op[] = [];
+    for (const id of this.selectedIds) {
+      const b = this.model.block(id);
+      if (b && b.type !== type) {
+        ops.push({ type: "block.update", id, blockType: type, prevBlockType: b.type });
+      }
+    }
+    if (ops.length > 0) this.queue.submitImmediate(ops, { selBefore: null });
+    this.clearSelection();
   }
 
   /** 大纲跳转：平滑滚动到指定块 */
@@ -279,6 +380,7 @@ export class Editor {
     this.closeSlashMenu();
     this.renderLocks();
     this.renderCommentChips();
+    this.setupVirtualScroll();
     this.hooks.onStructureChanged();
   }
 
@@ -304,6 +406,65 @@ export class Editor {
         chip?.remove();
       }
     }
+  }
+
+  /** 虚拟滚动阈值：块数超过此值时，视口外的块用占位 div 替代内容 */
+  private static readonly VIRTUAL_THRESHOLD = 100;
+  private observer: IntersectionObserver | null = null;
+
+  /** 启用/禁用虚拟滚动（结构调和时检查） */
+  private setupVirtualScroll() {
+    const needs = this.model.blocks.length > Editor.VIRTUAL_THRESHOLD;
+    if (needs && !this.observer) {
+      this.observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            const el = entry.target as HTMLElement;
+            if (entry.isIntersecting) {
+              // 进入视口：恢复内容
+              if (el.dataset.virtualized === "1") {
+                el.dataset.virtualized = "0";
+                this.restoreBlockContent(el);
+              }
+            } else {
+              // 离开视口：只留占位（保持高度）
+              if (el.dataset.virtualized !== "1") {
+                el.dataset.virtualized = "1";
+                const h = el.offsetHeight;
+                el.dataset.vh = String(h);
+                el.innerHTML = `<div style="height:${h}px"></div>`;
+              }
+            }
+          }
+        },
+        { rootMargin: "600px 0px" } // 前后各 600px 预渲染
+      );
+      for (const [, wrap] of this.nodes) this.observer.observe(wrap);
+    } else if (!needs && this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+      // 恢复所有
+      for (const [, wrap] of this.nodes) {
+        if (wrap.dataset.virtualized === "1") {
+          wrap.dataset.virtualized = "0";
+          this.restoreBlockContent(wrap);
+        }
+      }
+    }
+  }
+
+  /** 恢复被虚拟化的块内容 */
+  private restoreBlockContent(wrap: HTMLElement) {
+    const id = wrap.dataset.id ?? "";
+    const fresh = this.createBlockNode(id);
+    wrap.innerHTML = fresh.innerHTML;
+    wrap.className = fresh.className;
+    // 重新绑定事件（简单方案：重建节点替换）
+    wrap.replaceWith(fresh);
+    this.nodes.set(id, fresh);
+    this.observer?.observe(fresh);
+    this.renderLocks();
+    this.renderCommentChips();
   }
 
   private createBlockNode(id: string): HTMLElement {
@@ -511,6 +672,21 @@ export class Editor {
     this.el.addEventListener("dragleave", (e) => {
       if (!this.draggingId) return;
       if (e.target === this.el) this.clearDropIndicator();
+    });
+
+    // Shift+点击 → 多选
+    this.el.addEventListener("mousedown", (e) => {
+      if (!e.shiftKey || this.readOnly) return;
+      const target = (e.target as HTMLElement).closest<HTMLElement>(".block");
+      if (!target?.dataset.id) return;
+      e.preventDefault();
+      this.toggleSelect(target.dataset.id, !this.selectedIds.has(target.dataset.id));
+    });
+    // Esc 清除多选
+    this.el.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this.selectedIds.size > 0) {
+        this.clearSelection();
+      }
     });
 
     this.el.addEventListener("focusin", (e) => {
@@ -803,6 +979,19 @@ export class Editor {
     if (e.key === "ArrowRight" && offset === text.length && next) {
       e.preventDefault();
       this.focusBlock(next.id, 0);
+      return;
+    }
+    if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && !this.readOnly) {
+      // Shift+↑↓ → 从当前块扩展/收缩选区
+      e.preventDefault();
+      const target = e.key === "ArrowUp" ? prev : next;
+      if (target) {
+        if (this.selectedIds.has(target.id)) {
+          this.toggleSelect(id, false); // 收缩
+        } else {
+          this.toggleSelect(target.id, true); // 扩展
+        }
+      }
       return;
     }
     if (e.key === "ArrowUp" && offset === 0 && prev) {
