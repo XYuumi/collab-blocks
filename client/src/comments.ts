@@ -8,6 +8,7 @@
  */
 import type { CommentData } from "@shared/protocol";
 import { getToken } from "./auth";
+import { safeStorage } from "./util";
 import type { DocModel } from "./model";
 import type { Editor } from "./editor";
 
@@ -32,12 +33,12 @@ export class Comments {
     return `ce-comments-seen-${this.docId}`;
   }
   private loadSeen(): number {
-    const v = Number(localStorage.getItem(this.readSeenKey()));
+    const v = Number(safeStorage.get(this.readSeenKey()));
     return Number.isFinite(v) && v > 0 ? v : 0;
   }
   private saveSeen(ts: number) {
     try {
-      localStorage.setItem(this.readSeenKey(), String(ts));
+      safeStorage.set(this.readSeenKey(), String(ts));
     } catch {
       /* ignore */
     }
@@ -106,7 +107,7 @@ export class Comments {
     try {
       if (typeof Notification === "undefined") return;
       if (Notification.permission !== "granted") return;
-      if (localStorage.getItem("ce-notify") === "0") return;
+      if (safeStorage.get("ce-notify") === "0") return;
       if (!document.hidden) return;
       const n = new Notification(`💬 ${comment.name} 评论了你`, {
         body: comment.body.slice(0, 80),
@@ -208,23 +209,23 @@ export class Comments {
     const notifyBtn = document.createElement("button");
     notifyBtn.className = "btn comments-notify";
     const syncNotifyBtn = () => {
-      const off = localStorage.getItem("ce-notify") === "0";
+      const off = safeStorage.get("ce-notify") === "0";
       notifyBtn.textContent = off ? "🔕" : "🔔";
       notifyBtn.title = off ? "桌面通知已关，点击开启" : "桌面通知已开，点击关闭";
     };
     syncNotifyBtn();
     notifyBtn.addEventListener("click", async () => {
-      if (localStorage.getItem("ce-notify") === "0") {
-        localStorage.setItem("ce-notify", "1");
+      if (safeStorage.get("ce-notify") === "0") {
+        safeStorage.set("ce-notify", "1");
       } else if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
         const p = await Notification.requestPermission();
         if (p !== "granted") {
           this.toast("未获得通知授权，可在浏览器地址栏设置中开启", "warn");
           return;
         }
-        localStorage.setItem("ce-notify", "1");
+        safeStorage.set("ce-notify", "1");
       } else {
-        localStorage.setItem("ce-notify", localStorage.getItem("ce-notify") === "0" ? "1" : "0");
+        safeStorage.set("ce-notify", safeStorage.get("ce-notify") === "0" ? "1" : "0");
       }
       syncNotifyBtn();
     });

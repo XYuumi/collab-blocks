@@ -21,6 +21,7 @@ import { openShareModal } from "./share";
 import { Comments } from "./comments";
 import { Search } from "./search";
 import { blocksToMarkdown, blocksToPlainText, blocksToHtml, sanitizeFilename } from "./markdown";
+import { safeStorage } from "./util";
 
 const PENDING_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 const PENDING_MAX_JSON = 256 * 1024;
@@ -110,10 +111,10 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
       if (viewerMode) return;
       try {
         if (model.pending.length === 0) {
-          localStorage.removeItem(pendingKey);
+          safeStorage.remove(pendingKey);
         } else {
           const raw = JSON.stringify({ txs: model.pending, savedAt: Date.now() });
-          if (raw.length <= PENDING_MAX_JSON) localStorage.setItem(pendingKey, raw);
+          if (raw.length <= PENDING_MAX_JSON) safeStorage.set(pendingKey, raw);
         }
       } catch {
         /* 配额满等，忽略 */
@@ -122,7 +123,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
   };
   const loadStoredPending = (): { txId: string; ops: Op[] }[] | null => {
     try {
-      const raw = localStorage.getItem(pendingKey);
+      const raw = safeStorage.get(pendingKey);
       if (!raw || raw.length > PENDING_MAX_JSON) return null;
       const parsed = JSON.parse(raw) as { txs?: { txId: string; ops: Op[] }[]; savedAt?: number };
       if (!Array.isArray(parsed.txs) || parsed.txs.length === 0) return null;
@@ -438,7 +439,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
   status.themeBtn.addEventListener("click", () => {
     const dark = !document.documentElement.classList.contains("dark");
     document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("ce-theme", dark ? "dark" : "light");
+    safeStorage.set("ce-theme", dark ? "dark" : "light");
     status.themeBtn.textContent = dark ? "☀️" : "🌙";
     cursors?.repositionAll();
   });

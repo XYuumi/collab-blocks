@@ -324,7 +324,6 @@ export class Editor {
       wrap.appendChild(img);
       const del = document.createElement("button");
       del.className = "block-image-del";
-      del.textContent = "×";
       del.title = "删除图片";
       del.addEventListener("mousedown", (e) => {
         e.preventDefault();

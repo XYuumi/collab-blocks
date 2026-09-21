@@ -138,3 +138,30 @@ export function invertOps(ops: Op[]): Op[] {
 export function isTextOp(op: Op): op is TextOp {
   return op.type === "text.insert" || op.type === "text.delete";
 }
+
+
+/** 安全 localStorage（Safari 隐私模式/配额满会抛异常，静默降级为内存 Map） */
+const memStore = new Map<string, string>();
+export const safeStorage = {
+  get(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return memStore.get(key) ?? null;
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      memStore.set(key, value);
+    }
+  },
+  remove(key: string) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      memStore.delete(key);
+    }
+  },
+};

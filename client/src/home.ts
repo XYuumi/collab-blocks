@@ -4,6 +4,7 @@
  */
 import { getToken, openAuthModal, logout } from "./auth";
 import { markdownToBlocks } from "./markdown";
+import { safeStorage } from "./util";
 import { uuid } from "@shared/protocol";
 
 interface DocMeta {
@@ -23,6 +24,41 @@ function fmtTime(ts: number): string {
   return d.toLocaleDateString();
 }
 
+/** 特性卡内容（登录/未登录共用） */
+function mountIntroCards(container: HTMLElement, guest: boolean) {
+  const grid = document.createElement("div");
+  grid.className = "home-intro-grid";
+  const cards: [string, string, string][] = [
+    ["⚡", "实时同步", "多人同时编辑，输入即达；远程光标与选区高亮让你看见对方正在改哪里"],
+    ["🧱", "块结构", "标题/列表/待办/代码/图片块；键入 / 唤起菜单，或 # 空格、[ ] 空格等 Markdown 快捷转换"],
+    ["🔗", "分享与权限", "编辑链接 + 只读链接双轨分发；开放编辑/受限编辑两档权限，可维护协作者名单"],
+    ["🛡", "断线不丢", "断网照常编辑，重连自动补发；关页前的未同步修改也能恢复；每次提交即落盘"],
+    ["⏪", "版本与快照", "每个事务推进版本号；一键恢复历史快照（可撤销），支持与当前内容对比"],
+    ["💬", "评论与搜索", "块级评论线程（实时推送+未读角标+桌面通知）；Ctrl+F 全文搜索高亮跳转"],
+  ];
+  for (const [icon, title, desc] of cards) {
+    const card = document.createElement("div");
+    card.className = "home-intro-card";
+    card.innerHTML = `<div class="home-intro-icon">${icon}</div><div><h3></h3><p></p></div>`;
+    card.querySelector("h3")!.textContent = title;
+    card.querySelector("p")!.textContent = desc;
+    grid.appendChild(card);
+  }
+  container.appendChild(grid);
+  if (!guest) {
+    const more = document.createElement("p");
+    more.className = "home-intro-more";
+    more.innerHTML = `快速上手：新建文档 → 点「分享」复制链接发给同伴 → 两个页面同时编辑试试。
+      完整设计文档见仓库 <code>docs/</code> 目录。`;
+    container.appendChild(more);
+  } else {
+    const more = document.createElement("p");
+    more.className = "home-intro-more";
+    more.textContent = "全部能力开箱即用：注册一个账号，或让朋友把编辑链接发给你。";
+    container.appendChild(more);
+  }
+}
+
 export async function mountHome(root: HTMLElement) {
   root.innerHTML = "";
   const page = document.createElement("div");
@@ -40,14 +76,14 @@ export async function mountHome(root: HTMLElement) {
 
   /** 顶栏"介绍"重开按钮（介绍被收起时显示；幂等） */
   const mountReopen = () => {
-    if (localStorage.getItem("ce-intro-dismissed") !== "1") return;
+    if (safeStorage.get("ce-intro-dismissed") !== "1") return;
     if (header.querySelector(".home-intro-reopen")) return;
     const re = document.createElement("button");
     re.className = "btn home-intro-reopen";
     re.textContent = "ⓘ 介绍";
     re.title = "查看产品介绍";
     re.addEventListener("click", () => {
-      localStorage.removeItem("ce-intro-dismissed");
+      safeStorage.remove("ce-intro-dismissed");
       location.reload();
     });
     header.appendChild(re);
@@ -85,12 +121,15 @@ export async function mountHome(root: HTMLElement) {
     renderHeader(false);
     main.innerHTML = `
       <div class="home-hero">
-        <h1>协同编辑器</h1>
-        <p>多人实时协作的块结构文档：远程光标、块锁、断线重连补发、冲突自动合并、快照恢复。</p>
-        <p class="home-dim">登录后即可创建文档并分享协作；也可以直接打开别人分享给你的链接，以访客身份参与编辑。</p>
-        <button class="btn home-cta">登录 / 注册开始</button>
-      </div>`;
-    main.querySelector(".home-cta")!.addEventListener("click", () => openAuthModal("register"));
+        <div class="home-hero-badge">多人实时协作</div>
+        <h1>Collab Blocks</h1>
+        <p class="home-hero-sub">基于块结构的协同文档：像腾讯文档一样分享链接实时协作，<br>底层是一套自研的同步协议（版本 + 块级 CAS，不依赖 OT/CRDT）。</p>
+        <button class="btn home-cta">免费开始使用</button>
+        <p class="home-dim">注册即可创建文档并分享协作；也可以直接打开别人分享给你的链接，以访客身份参与编辑。</p>
+      </div>
+      <section class="home-intro guest-intro"></section>`;
+    main.querySelector<HTMLElement>(".home-cta")!.addEventListener("click", () => openAuthModal("register"));
+    mountIntroCards(main.querySelector(".guest-intro")!, true);
     return;
   }
 
@@ -101,50 +140,61 @@ export async function mountHome(root: HTMLElement) {
 
   // ---------------- 产品介绍（登录后也展示，可收起，偏好记忆在 localStorage） ----------------
   const intro = document.createElement("section");
-  intro.className = "home-intro";
-  const introDismissed = localStorage.getItem("ce-intro-dismissed") === "1";
-  if (!introDismissed) {
+  intro.className = "home-intro collapsible";
+  const introDismissed = safeStorage.get("ce-intro-dismissed") === "1";
+  {
     const head = document.createElement("div");
     head.className = "home-intro-head";
     head.innerHTML = `<div class="home-intro-title">📚 这是什么？<span>Collab Blocks · 多人实时协作的块结构编辑器</span></div>`;
+    const body = document.createElement("div");
+    body.className = "home-intro-body collapsible-body";
+    mountIntroCards(body, false);
     const dismiss = document.createElement("button");
     dismiss.className = "btn home-intro-dismiss";
     dismiss.textContent = "收起";
-    dismiss.title = "收起介绍（可在 localStorage 清除 ce-intro-dismissed 恢复）";
-    dismiss.addEventListener("click", () => {
-      intro.remove();
-      localStorage.setItem("ce-intro-dismissed", "1");
-      mountReopen();
-    });
+    dismiss.title = "收起介绍";
+    /** 平滑收起/展开：先测量实际高度，再过渡 max-height + opacity */
+    const setCollapsed = (collapsed: boolean) => {
+      if (collapsed) {
+        body.style.maxHeight = `${body.scrollHeight}px`;
+        requestAnimationFrame(() => {
+          body.style.maxHeight = "0px";
+          body.style.opacity = "0";
+        });
+        body.addEventListener("transitionend", () => {
+          if (safeStorage.get("ce-intro-dismissed") === "1") intro.classList.add("gone");
+        }, { once: true });
+        safeStorage.set("ce-intro-dismissed", "1");
+        dismiss.textContent = "展开";
+        dismiss.title = "展开介绍";
+        mountReopen(); // 收起动画期间顶栏入口就位
+      } else {
+        intro.classList.remove("gone");
+        body.style.maxHeight = `${body.scrollHeight}px`;
+        body.style.opacity = "1";
+        body.addEventListener("transitionend", () => {
+          body.style.maxHeight = ""; // 展开完成后解除限制，允许内容自适应
+        }, { once: true });
+        safeStorage.remove("ce-intro-dismissed");
+        dismiss.textContent = "收起";
+        dismiss.title = "收起介绍";
+        header.querySelector(".home-intro-reopen")?.remove();
+      }
+    };
+    dismiss.addEventListener("click", () => setCollapsed(safeStorage.get("ce-intro-dismissed") !== "1"));
     head.appendChild(dismiss);
     intro.appendChild(head);
-
-    const grid = document.createElement("div");
-    grid.className = "home-intro-grid";
-    const cards: [string, string, string][] = [
-      ["⚡", "实时同步", "多人同时编辑，输入即达；远程光标与选区高亮让你看见对方正在改哪里"],
-      ["🧱", "块结构", "标题/列表/待办/代码/图片块；键入 / 唤起菜单，或 # 空格、[ ] 空格等 Markdown 快捷转换"],
-      ["🔗", "分享与权限", "编辑链接 + 只读链接双轨分发；可开启「仅创建者可编辑」并维护协作者名单"],
-      ["🛡", "断线不丢", "断网照常编辑，重连自动补发；关页前的未同步修改也能恢复；每次提交即落盘"],
-      ["⏪", "版本与快照", "每个事务推进版本号；一键恢复历史快照（可撤销），支持与当前内容对比"],
-      ["💬", "评论与搜索", "块级评论线程（实时推送+未读角标）；Ctrl+F 全文搜索高亮跳转"],
-    ];
-    for (const [icon, title, desc] of cards) {
-      const card = document.createElement("div");
-      card.className = "home-intro-card";
-      card.innerHTML = `<div class="home-intro-icon">${icon}</div><div><h3></h3><p></p></div>`;
-      card.querySelector("h3")!.textContent = title;
-      card.querySelector("p")!.textContent = desc;
-      grid.appendChild(card);
-    }
-    intro.appendChild(grid);
-
-    const more = document.createElement("p");
-    more.className = "home-intro-more";
-    more.innerHTML = `快速上手：新建文档 → 点「分享」复制链接发给同伴 → 两个页面同时编辑试试。
-      完整设计文档见仓库 <code>docs/</code> 目录（功能说明 · 架构 · 同步协议 · 冲突处理 · 自问自答 · 审查报告 · 技术选型）。`;
-    intro.appendChild(more);
+    intro.appendChild(body);
     main.appendChild(intro);
+    if (introDismissed) {
+      // 刷新进入已收起态：无动画直接收
+      body.style.transition = "none";
+      body.style.maxHeight = "0px";
+      body.style.opacity = "0";
+      dismiss.textContent = "展开";
+      dismiss.title = "展开介绍";
+      requestAnimationFrame(() => (body.style.transition = ""));
+    }
   }
 
   // 新建 + 回收站
@@ -170,6 +220,10 @@ export async function mountHome(root: HTMLElement) {
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files?.[0];
     if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      alert("文件过大（上限 10MB）");
+      return;
+    }
     try {
       const text = await file.text();
       const blocks = markdownToBlocks(text, () => uuid());
