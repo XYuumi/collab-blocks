@@ -540,6 +540,20 @@ export class Editor {
       wrap.appendChild(handle);
     }
 
+    // 评论入口（悬停出现在把手下方；触摸设备常显）：空块也能发起首条评论
+    if (!this.readOnly && this.hooks.onOpenComments) {
+      const cbtn = document.createElement("button");
+      cbtn.type = "button";
+      cbtn.className = "block-comment-btn";
+      cbtn.textContent = "💬";
+      cbtn.title = "评论该块";
+      cbtn.addEventListener("mousedown", (e) => {
+        e.preventDefault(); // 不抢编辑焦点
+        this.hooks.onOpenComments?.(id);
+      });
+      wrap.appendChild(cbtn);
+    }
+
     const idChip = document.createElement("span");
     idChip.className = "block-id";
     idChip.textContent = `#${id.slice(0, 4)}`;
@@ -932,13 +946,22 @@ export class Editor {
     if (mod) return; // Ctrl+Z/Y 撤销重做在页面级处理（避免焦点丢失后失效）
     if (e.key === "Enter") {
       e.preventDefault();
-      // 代码块内回车 → 插入换行符（不拆块）；Shift+Enter 同理
+      // 代码块：Shift+Enter 块内换行；Enter 跳出代码块（在下方新建正文块，代码内容不动）
       if (bType === "code") {
-        this.queue.submitImmediate(
-          [{ type: "text.insert", blockId: id, offset, text: "\n" }],
-          { selBefore: { blockId: id, offset }, caretAfter: { blockId: id, offset: offset + 1 } },
-        );
-        this.focusBlock(id, offset + 1);
+        if (e.shiftKey) {
+          this.queue.submitImmediate(
+            [{ type: "text.insert", blockId: id, offset, text: "\n" }],
+            { selBefore: { blockId: id, offset }, caretAfter: { blockId: id, offset: offset + 1 } },
+          );
+          this.focusBlock(id, offset + 1);
+        } else {
+          const newId = uuid();
+          this.queue.submitImmediate(
+            [{ type: "block.insert", id: newId, afterId: id, text: "", blockType: "text" }],
+            { selBefore: { blockId: id, offset }, caretAfter: { blockId: newId, offset: 0 } },
+          );
+          this.focusBlock(newId, 0);
+        }
         return;
       }
       // 空的列表/待办块回车 → 转为正文（退出列表）
@@ -1176,6 +1199,16 @@ export class Editor {
     if (caret === null) return;
     const raw = e.clipboardData?.getData("text/plain");
     if (!raw) return;
+    // 代码块：多行文本整体并入块内（保留换行符），与其他块类型按行拆块的行为区分
+    if (this.model.block(id)?.type === "code") {
+      const text = raw.replace(/\r\n?/g, "\n");
+      this.queue.submitImmediate(
+        [{ type: "text.insert", blockId: id, offset: caret, text }],
+        { selBefore: { blockId: id, offset: caret }, caretAfter: { blockId: id, offset: caret + text.length } },
+      );
+      this.focusBlock(id, caret + text.length);
+      return;
+    }
     const lines = raw.replace(/\r\n?/g, "\n").split("\n");
     const curText = this.model.visibleText(id);
     const tail = curText.slice(caret);

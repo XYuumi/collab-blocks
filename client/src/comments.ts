@@ -254,22 +254,27 @@ export class Comments {
     panel.appendChild(body);
 
     const threads = this.byBlock();
-    if (threads.size === 0) {
+    if (threads.size === 0 && !this.openBlockId) {
       const empty = document.createElement("div");
       empty.className = "comments-empty";
-      empty.textContent = "暂无评论。悬停块左侧出现 💬 时点击，或选中块后在面板中发言。";
+      empty.textContent = "暂无评论。悬停块左侧点击 💬 即可对该块发表评论（触摸设备按钮常显）。";
       body.appendChild(empty);
       return;
+    }
+    // 打开的块还没有评论 → 渲染空线程，作为首条评论的输入入口
+    if (this.openBlockId && this.model.block(this.openBlockId) && !threads.has(this.openBlockId)) {
+      threads.set(this.openBlockId, []);
     }
     // 未读/打开的线程排前面
     const ordered = [...threads.entries()].sort((a, b) => {
       if (a[0] === this.openBlockId) return -1;
-      if (b[0] === this.openBlockId) return 1
-      return b[1][b[1].length - 1].createdAt - a[1][a[1].length - 1].createdAt;
+      if (b[0] === this.openBlockId) return 1;
+      return (b[1][b[1].length - 1]?.createdAt ?? 0) - (a[1][a[1].length - 1]?.createdAt ?? 0);
     });
     for (const [blockId, arr] of ordered) {
       const thread = document.createElement("div");
-      thread.className = "comment-thread" + (arr.every((c) => c.resolved) ? " resolved" : "") + (blockId === this.openBlockId ? " focus" : "");
+      thread.className =
+        "comment-thread" + (arr.length > 0 && arr.every((c) => c.resolved) ? " resolved" : "") + (blockId === this.openBlockId ? " focus" : "");
       const title = document.createElement("div");
       title.className = "comment-thread-title";
       title.textContent = this.snippet(blockId);
@@ -319,7 +324,7 @@ export class Comments {
         input.className = "comment-input-row";
         const box = document.createElement("input");
         box.className = "comment-input";
-        box.placeholder = "回复…（回车发送）";
+        box.placeholder = arr.length === 0 ? "发表评论…（回车发送）" : "回复…（回车发送）";
         box.maxLength = 1000;
         const send = () => {
           const v = box.value.trim();

@@ -10,6 +10,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-339933)
 ![Tests](https://img.shields.io/badge/tests-52%20unit%20%2B%2010%20E2E-2ea043)
+[![在线预览](https://img.shields.io/badge/在线预览-点击访问-2ea043)](http://45.125.46.14:28365)
+
+**在线预览**：<http://45.125.46.14:28365>（部署于 Linux 宝塔环境，手机/桌面均可访问；注册即可体验多人协同）
 
 </div>
 

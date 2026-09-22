@@ -246,6 +246,14 @@ body {
   line-height: 1.55;
   tab-size: 2;
 }
+/* 代码块上下留出呼吸空间；两个代码块相邻时背景不贴边 */
+.block--code {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.block--code + .block--code {
+  margin-top: 12px;
+}
 /* 复选框走正常文档流（flex 子元素），与文字天然不重叠 */
 .block-checkbox {
   flex: 0 0 auto;
@@ -1531,6 +1539,38 @@ html.dark .offline-banner {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* 块评论入口按钮（悬停出现在把手下方）：与计数气泡并存时只留气泡 */
+.block-comment-btn {
+  position: absolute;
+  left: -26px;
+  top: 30px;
+  width: 18px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+  user-select: none;
+  z-index: 6;
+}
+.block:hover .block-comment-btn {
+  opacity: 0.55;
+}
+.block-comment-btn:hover {
+  opacity: 1 !important;
+  color: var(--accent);
+}
+.block:has(.block-comments-chip) .block-comment-btn {
+  display: none;
+}
 
 /* 文档栏工具组 */
 .docbar-tools {
@@ -2025,4 +2065,31 @@ html.dark .comment-mention.me {
 /* 虚拟滚动占位 */
 .block[data-virtualized="1"] {
   contain: strict;
+}
+
+/* ---------------------------------------------------------------- 触摸设备（无 hover） */
+@media (hover: none) {
+  /* 评论入口常显（悬停不可用），并加大触控目标 */
+  .block-comment-btn {
+    opacity: 0.4;
+    left: -12px;
+    top: 2px;
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+    touch-action: manipulation;
+  }
+  .block-comment-btn:active {
+    opacity: 1;
+    color: var(--accent);
+  }
+  /* HTML5 拖拽在触摸端不可用：隐藏把手，避免透明元素拦截左侧点按 */
+  .block-drag-handle {
+    display: none;
+  }
+  /* 多选浮动工具栏小屏防溢出 */
+  .sel-toolbar {
+    max-width: calc(100vw - 20px);
+    flex-wrap: wrap;
+  }
 }
