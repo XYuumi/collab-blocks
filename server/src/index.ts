@@ -13,11 +13,11 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { DOC_ID } from "../../shared/protocol";
+import { DOC_ID, HELP_DOC_ID } from "../../shared/protocol";
 import { randomUUID } from "node:crypto";
 import { DocManager } from "./docmanager";
 import { Hub } from "./hub";
-import { Store, seedDoc, StoreError } from "./store";
+import { Store, seedDoc, seedHelpDoc, DEMO_DOC_TITLE, OLD_DEMO_TITLE, StoreError } from "./store";
 import type { DocEngine } from "./engine";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,13 +42,30 @@ export function buildServer(dbPath?: string): AppServer {
   const store = new Store(dbPath ?? undefined, { migrateLegacy: !dbPath });
   const docs = new DocManager(store);
 
-  // 内置示例文档（无归属，所有人可见；旧库自动迁移保留内容）
-  const sample = store.loadDoc(DOC_ID) ?? seedDoc(DOC_ID);
-  const sampleEngine = docs.preload(sample);
-  const sampleMeta = store.getDocMeta(DOC_ID);
-  if (sampleMeta && sampleMeta.title === "未命名文档") {
-    store.setDocTitle(DOC_ID, "示例文档（所有人可编辑）");
+  // 内置演示文档（无归属，所有人可见）：旧库的旧版种子 → 整篇升级为全功能演示；
+  // 已被用户改动过（标题不同）则保持原样
+  let sampleEngine: DocEngine;
+  {
+    const meta0 = store.getDocMeta(DOC_ID);
+    let demo = store.loadDoc(DOC_ID);
+    if (!demo || (meta0 && (meta0.title === "未命名文档" || meta0.title === OLD_DEMO_TITLE))) {
+      demo = seedDoc(DOC_ID);
+      sampleEngine = docs.preload(demo);
+      store.setDocTitle(DOC_ID, DEMO_DOC_TITLE);
+    } else {
+      sampleEngine = docs.preload(demo);
+    }
+    // 示例评论：让 💬 气泡在演示文档里开箱可见（仅首次）
+    if (store.listComments(DOC_ID).length === 0 && demo.blocks.some((b) => b.id === "demo-comments")) {
+      store.addComment(DOC_ID, "demo-comments", { id: "system", username: "系统", color: "#6366f1" },
+        "欢迎试用评论功能：点左侧 💬 回复我，输入 @对方名字 可以提及（对方会收到通知）。评论永久存储，重启不丢。");
+    }
   }
+
+  // 内置功能说明文档（无归属，所有人可见，服务端强制只读）：
+  // 每次启动以种子覆盖 —— 文档不可编辑，无用户数据可损失，说明内容始终与当前版本一致
+  docs.preload(seedHelpDoc(HELP_DOC_ID));
+  store.setDocTitle(HELP_DOC_ID, "功能说明（只读）");
 
   const hub = new Hub(store, docs);
 
@@ -177,6 +194,7 @@ export function buildServer(dbPath?: string): AppServer {
       enforceOwnerEdit: meta.enforceOwnerEdit,
       accessMode: (meta as { accessMode?: string }).accessMode ?? (meta.enforceOwnerEdit ? "restricted" : "open"),
       isOwner: !!user && user.id === meta.ownerId,
+      readonly: meta.docId === HELP_DOC_ID,
     });
   });
 
@@ -409,9 +427,9 @@ export function buildServer(dbPath?: string): AppServer {
   });
 
   // ------------------------------------------------------------ 块级评论
-  /** 与 hello 一致的角色判定：enforce 开启时非 owner 不可评论 */
-  const canComment = (meta: { ownerId: string | null; enforceOwnerEdit: boolean }, userId: string) =>
-    !(meta.ownerId && meta.enforceOwnerEdit && meta.ownerId !== userId);
+  /** 与 hello 一致的角色判定：内置说明文档冻结；enforce 开启时非 owner 不可评论 */
+  const canComment = (meta: { docId: string; ownerId: string | null; enforceOwnerEdit: boolean }, userId: string) =>
+    meta.docId !== HELP_DOC_ID && !(meta.ownerId && meta.enforceOwnerEdit && meta.ownerId !== userId);
 
   app.get("/api/docs/:docId/comments", (req: Request, res: Response) => {
     const user = store.resolveToken(readToken(req));

@@ -254,6 +254,32 @@ body {
 .block--code + .block--code {
   margin-top: 12px;
 }
+/* 代码块「退出」按钮：右上角小控件；桌面悬停显示，触摸常显 */
+.block-code-exit {
+  position: absolute;
+  right: 8px;
+  top: 6px;
+  z-index: 6;
+  padding: 2px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+  touch-action: manipulation;
+}
+.block:hover .block-code-exit {
+  opacity: 0.75;
+}
+.block-code-exit:hover {
+  opacity: 1 !important;
+  color: var(--accent);
+  border-color: var(--accent);
+}
 /* 复选框走正常文档流（flex 子元素），与文字天然不重叠 */
 .block-checkbox {
   flex: 0 0 auto;
@@ -728,8 +754,15 @@ html.dark .offline-banner {
   margin: 8px auto 4px;
   line-height: 1.7;
 }
-.home-hero .home-cta {
+.home-hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-top: 22px;
+}
+.home-hero .home-cta {
   padding: 11px 34px;
   font-size: 15px;
   color: #fff;
@@ -2091,5 +2124,17 @@ html.dark .comment-mention.me {
   .sel-toolbar {
     max-width: calc(100vw - 20px);
     flex-wrap: wrap;
+  }
+}
+
+/* 触摸设备：代码块「退出」按钮常显（回车已用作块内换行） */
+@media (hover: none) {
+  .block-code-exit {
+    opacity: 0.6;
+  }
+  .block-code-exit:active {
+    opacity: 1;
+    color: var(--accent);
+    border-color: var(--accent);
   }
 }

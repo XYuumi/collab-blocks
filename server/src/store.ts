@@ -594,13 +594,27 @@ export class Store {
 
 export class StoreError extends Error {}
 
-/** 首次运行的种子文档（含块类型演示） */
+/** 演示文档标题（旧版种子升级判定用） */
+export const DEMO_DOC_TITLE = "演示文档 · 所有人可编辑";
+export const OLD_DEMO_TITLE = "示例文档（所有人可编辑）";
+
+const DEMO_IMAGE_SRC =
+  "data:image/svg+xml;base64," +
+  Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120"><rect width="320" height="120" rx="12" fill="#1e293b"/><text x="160" y="58" font-size="22" font-family="sans-serif" fill="#e2e8f0" text-anchor="middle">Collab Blocks</text><text x="160" y="88" font-size="13" font-family="sans-serif" fill="#94a3b8" text-anchor="middle">图片块演示 · 粘贴图片自动压缩</text></svg>`,
+  ).toString("base64");
+
+/**
+ * 首次运行的演示文档：覆盖全部块类型与核心功能，块 id 固定（供示例评论锚定）。
+ * 旧库升级：index.ts 启动时检测旧标题并整篇替换。
+ */
 export function seedDoc(docId: string): DocState {
-  const mk = (text: string, blockType: BlockType = "text", checked?: boolean): SrvBlock => ({
-    id: `seed-${crypto.randomUUID().slice(0, 8)}`,
+  const mk = (id: string, text: string, blockType: BlockType = "text", checked?: boolean, src?: string): SrvBlock => ({
+    id,
     type: blockType,
     text,
     checked,
+    ...(src ? { src } : {}),
     blockVersion: 0,
     lastWriter: "system",
   });
@@ -609,14 +623,77 @@ export function seedDoc(docId: string): DocState {
     version: 0,
     structureVersion: 0,
     blocks: [
-      mk("👋 欢迎来到协同编辑器", "h1"),
-      mk("基于 DOM 渲染的块结构编辑器：输入 / 唤起块类型菜单（标题、列表、待办、代码块）。"),
-      mk("两个标签页打开本页即可协作：实时同步、远程光标、块锁、断线重连补发。", "bullet"),
-      mk("注册登录后颜色与身份固定；不登录则以访客身份协作。", "bullet"),
-      mk("试试勾选这个待办事项", "todo", false),
-      mk("console.log('代码块也支持协同编辑')", "code"),
-      mk("支持：乐观更新、事务、ACK、幂等重发、块级 CAS 冲突合并、撤销/重做、快照。设计文档见 docs/。"),
-      mk("这一行留给你们做“同时编辑同一个块”的冲突实验。"),
+      mk("demo-title", "👋 演示文档 · 全功能一览", "h1"),
+      mk(
+        "demo-intro",
+        "这篇文档演示所有功能，人人可编辑。先开两个标签页打开本页，感受实时同步：远程光标、选区高亮、块锁（对方正在编辑的块会出现 🔒 提示）。",
+      ),
+      mk("demo-h2-types", "① 七种块类型", "h2"),
+      mk("demo-t-bullet-1", "输入 / 唤起块类型菜单；# + 空格、- + 空格、[ ] + 空格、``` 是 Markdown 快捷输入", "bullet"),
+      mk("demo-t-bullet-2", "待办事项可以点勾选，双端实时同步：", "bullet"),
+      mk("demo-todo-1", "点我勾选 / 取消勾选（可 Ctrl+Z 撤销）", "todo", false),
+      mk("demo-todo-2", "已完成的待办（删除线样式）", "todo", true),
+      mk(
+        "demo-code",
+        '// 代码块：桌面 Shift+Enter 块内换行、Enter 跳出；\n// 手机上回车直接换行，点右上「退出」按钮离开代码块\nfunction hello(name) {\n  return `你好，${name}！`;\n}\nconsole.log(hello("Collab Blocks"));',
+        "code",
+      ),
+      mk("demo-image", "图片块：粘贴或拖入图片自动压缩", "image", undefined, DEMO_IMAGE_SRC),
+      mk("demo-h2-collab", "② 多人协同", "h2"),
+      mk(
+        "demo-comments",
+        "块级评论：悬停本块左侧点 💬 可新建评论线程（下方已有一条示例评论）；评论支持 @提及 和桌面通知，全部永久存储在服务端 SQLite 数据库，重启不丢。",
+      ),
+      mk("demo-presence", "右上角是在线用户列表，实时显示谁在编辑；底部状态栏显示连接状态、版本与待同步事务。"),
+      mk("demo-h2-tools", "③ 搜索 / 大纲 / 快照 / 导出", "h2"),
+      mk("demo-tools", "Ctrl+F 全文搜索（高亮 + 跳转）；左侧大纲点击跳转标题；右上「快照」查看/恢复历史版本；「导出」支持 Markdown / 纯文本 / HTML 复制与 .md 下载，还能导入 .md 生成文档。"),
+      mk("demo-h2-mobile", "④ 手机端", "h2"),
+      mk("demo-mobile", "手机可直接访问，已做触控适配：评论入口常显、多选工具栏自动换行、代码块回车即换行（点代码块右上「退出」按钮可离开）。"),
+      mk("demo-h2-play", "⑤ 动手试试", "h2"),
+      mk("demo-play-1", "同时编辑本块做冲突实验：两个标签页各自输入，看输入如何被保留", "bullet"),
+      mk("demo-play-2", "删除我再 Ctrl+Z 撤销回来", "bullet"),
+      mk("demo-play-3", "拖动块左侧 ⠿ 把我移到别处", "bullet"),
+    ],
+  };
+}
+
+/** 内置功能说明文档（所有人可见，服务端强制只读；每次启动以种子覆盖保持与版本同步） */
+export function seedHelpDoc(docId: string): DocState {
+  const mk = (text: string, blockType: BlockType = "text"): SrvBlock => ({
+    id: `help-${crypto.randomUUID().slice(0, 8)}`,
+    type: blockType,
+    text,
+    blockVersion: 0,
+    lastWriter: "system",
+  });
+  return {
+    docId,
+    version: 0,
+    structureVersion: 0,
+    blocks: [
+      mk("📖 Collab Blocks 功能说明（只读）", "h1"),
+      mk("本文档为内置说明，所有人可见、不可编辑。想动手体验请打开「演示文档」。"),
+      mk("快捷键与输入", "h2"),
+      mk("输入 / 唤起块类型菜单（支持拼音/英文过滤，↑↓ 选择，Enter 确认）", "bullet"),
+      mk("Markdown 快捷输入：# / ## / ### + 空格 → 标题；- * + 空格 → 列表；[ ] / [x] + 空格 → 待办；``` → 代码块（触发串需独占整块）", "bullet"),
+      mk("代码块：桌面 Enter 跳出到下方新建正文块、Shift+Enter 块内换行；手机 Enter 直接块内换行，点块右上「退出」按钮跳出到下方正文块", "bullet"),
+      mk("多行文本粘贴自动按行拆块（代码块内则整体并入保留换行）；粘贴图片自动压缩为图片块", "bullet"),
+      mk("Ctrl+F 搜索；Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z 撤销重做；? 打开快捷键面板；Shift+点击 或 Shift+↑↓ 多选块后批量转类型/删除", "bullet"),
+      mk("块手势：块首 Backspace 非正文块转正文；空列表/待办回车转正文；拖动 ⠿ 排序", "bullet"),
+      mk("权限与分享", "h2"),
+      mk("三档权限：开放（任何人可编辑）/ 登录可编辑 / 受限（仅创建者与协作者可编辑）", "bullet"),
+      mk("分享双轨：编辑链接（/d/文档ID 即凭据）/ 只读链接（/r/令牌，整页禁编辑）；受限文档可发起编辑权限申请，创建者审批", "bullet"),
+      mk("回收站：删除的文档 7 天内可恢复", "bullet"),
+      mk("协同能力", "h2"),
+      mk("实时同步（WebSocket）：远程光标与跨块选区高亮、块锁（15s TTL 自动过期）、乐观更新 + 事务原子提交 + ACK + 幂等重发 + 断线重连对账补发", "bullet"),
+      mk("冲突处理：块级 CAS，不同块并发无冲突；同块并发自动变换合并重试，双方输入保留", "bullet"),
+      mk("块级评论：悬停块左侧 💬 发起评论；支持回复、标记解决、@提及、桌面通知、未读角标；评论永久存储于 SQLite，重启不丢失", "bullet"),
+      mk("快照：每 50 个版本自动落一份，可查看、对比、恢复任意历史版本（恢复本身是可撤销的事务）", "bullet"),
+      mk("数据与部署", "h2"),
+      mk("数据全部持久化在服务端 SQLite（node:sqlite，WAL 模式）：用户/会话/文档/快照/评论每次提交即落盘，重启零丢失", "bullet"),
+      mk("在线体验地址见 README；部署于 Linux（宝塔面板）单进程 Node 服务，HTTP 与 WebSocket 同端口", "bullet"),
+      mk("已知限制", "h2"),
+      mk("撤销不感知他人对同一块的修改；块内暂无富文本样式（加粗/斜体）；HTTP 暂未加 TLS；单进程部署（多进程需 Redis 广播）", "bullet"),
     ],
   };
 }

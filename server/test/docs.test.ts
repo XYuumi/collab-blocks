@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { WebSocket } from "ws";
 import { buildServer } from "../src/index";
-import { DOC_ID, type ServerMsg, type Tx } from "../../shared/protocol";
+import { DOC_ID, HELP_DOC_ID, type ServerMsg, type Tx } from "../../shared/protocol";
 
 function tmpDb() {
   return path.join(os.tmpdir(), `collab-docs-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
@@ -84,11 +84,12 @@ test("REST：文档 CRUD 与归属（登录才能建，示例文档全员可见�
     // 创建
     const created = (await (await fetch(`${base}/api/docs`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${reg.token}` }, body: JSON.stringify({ title: "我的计划" }) })).json()) as { docId: string; title: string };
     assert.equal(created.title, "我的计划");
-    // 列表 = 我的 + 示例
+    // 列表 = 我的 + 内置演示文档 + 内置功能说明文档（均无归属、全员可见）
     const list = (await (await fetch(`${base}/api/docs`, { headers: { Authorization: `Bearer ${reg.token}` } })).json()) as { docs: { docId: string; mine: boolean }[] };
-    assert.equal(list.docs.length, 2);
+    assert.equal(list.docs.length, 3);
     assert.ok(list.docs.some((d) => d.docId === created.docId && d.mine));
     assert.ok(list.docs.some((d) => d.docId === DOC_ID && !d.mine));
+    assert.ok(list.docs.some((d) => d.docId === HELP_DOC_ID && !d.mine));
     // 改名 + enforce 开关
     const patch = await fetch(`${base}/api/docs/${created.docId}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${reg.token}` }, body: JSON.stringify({ title: "改名了", enforceOwnerEdit: true }) });
     assert.equal(patch.status, 200);
@@ -99,8 +100,33 @@ test("REST：文档 CRUD 与归属（登录才能建，示例文档全员可见�
     const del = await fetch(`${base}/api/docs/${created.docId}`, { method: "DELETE", headers: { Authorization: `Bearer ${reg.token}` } });
     assert.equal(del.status, 200);
     const after = (await (await fetch(`${base}/api/docs`, { headers: { Authorization: `Bearer ${reg.token}` } })).json()) as { docs: unknown[] };
-    assert.equal(after.docs.length, 1);
+    assert.equal(after.docs.length, 2); // 剩两个内置文档（演示 + 功能说明）
   } finally {
+    await l.close();
+  }
+});
+
+test("内置功能说明文档：全员只读（WS 角色强制 viewer + 评论/写操作被拒）", async () => {
+  const s = buildServer(tmpDb());
+  const l = await s.listen(0);
+  const someone = s.store.register("helpreader", "pass123");
+  const c = await new C(l.port, HELP_DOC_ID).open();
+  try {
+    const init = await c.hello(someone.token);
+    assert.equal(init.role, "viewer"); // 无论登录与否一律只读
+    const engine = s.docs.get(HELP_DOC_ID)!;
+    const blk = engine.state.blocks[0];
+    c.tx(engine, someone.user.id, [{ type: "text.insert", blockId: blk.id, offset: 0, text: "x" }], "h1");
+    await c.waitFor((m) => m.t === "error");
+    // REST 评论同样被拒
+    const cm = await fetch(`http://127.0.0.1:${l.port}/api/docs/${HELP_DOC_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${someone.token}` },
+      body: JSON.stringify({ blockId: blk.id, body: "hi" }),
+    });
+    assert.equal(cm.status, 403);
+  } finally {
+    await c.close();
     await l.close();
   }
 });

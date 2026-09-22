@@ -5,6 +5,7 @@
  * Markdown 导出、只读"申请编辑"闭环、快捷键帮助、快照对比（见 snapshots）。
  */
 import type { BlockData, DocRole, Op, ServerMsg, UserInfo } from "@shared/protocol";
+import { HELP_DOC_ID } from "@shared/protocol";
 import { DocModel } from "./model";
 import { Net } from "./net";
 import { TxQueue } from "./queue";
@@ -91,6 +92,8 @@ function openShortcutsModal() {
 export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
   const { docId } = opts;
   const viewerMode = opts.mode === "view";
+  /** 内置功能说明文档：服务端强制只读（所有人 viewer），无主可申请权限 */
+  const frozenDoc = docId === HELP_DOC_ID;
 
   const model = new DocModel();
   const net = new Net(docId, opts.mode);
@@ -310,8 +313,12 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
       updateRequestBtn();
     });
 
-  // 只读用户的"申请编辑"闭环
+  // 只读用户的"申请编辑"闭环（内置说明文档无主，隐藏申请入口）
   const updateRequestBtn = () => {
+    if (frozenDoc) {
+      requestBtn.style.display = "none";
+      return;
+    }
     const show = role === "viewer" && !viewerMode ? true : viewerMode;
     requestBtn.style.display = show ? "" : "none";
   };
@@ -558,7 +565,7 @@ export function mountEditor(root: HTMLElement, opts: EditorPageOpts) {
         comments.setMe(m.you.userId, !isViewer, m.you.name);
         updateRequestBtn();
         if (isViewer && !viewerMode) {
-          status.toast("创建者已开启「仅创建者可编辑」，当前为只读模式", "info");
+          status.toast(frozenDoc ? "本文档为内置功能说明（只读）" : "创建者已开启「仅创建者可编辑」，当前为只读模式", "info");
         }
         if (!model.loaded) {
           model.loadSnapshot(m.doc);

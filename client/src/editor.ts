@@ -521,6 +521,20 @@ export class Editor {
       wrap.prepend(cb);
     }
 
+    // 代码块「退出」按钮：手机回车即换行，跳出到下方正文块靠它（桌面悬停也可见，与 Enter 等效）
+    if (type === "code" && !this.readOnly) {
+      const exit = document.createElement("button");
+      exit.type = "button";
+      exit.className = "block-code-exit";
+      exit.textContent = "退出";
+      exit.title = "在下方新建正文块（桌面也可直接按 Enter）";
+      exit.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.exitCodeBlock(id, 0);
+      });
+      wrap.appendChild(exit);
+    }
+
     // 拖拽把手（悬停左侧显示；非只读时可拖动排序）
     if (!this.readOnly) {
       const handle = document.createElement("div");
@@ -946,21 +960,19 @@ export class Editor {
     if (mod) return; // Ctrl+Z/Y 撤销重做在页面级处理（避免焦点丢失后失效）
     if (e.key === "Enter") {
       e.preventDefault();
-      // 代码块：Shift+Enter 块内换行；Enter 跳出代码块（在下方新建正文块，代码内容不动）
+      // 代码块换行（桌面/手机分工）：
+      // - 手机（粗指针）：回车直接块内换行（虚拟键盘通常没有 Shift+Enter），
+      //   长按回车的重复事件同样换行；跳出用块右上「退出」按钮
+      // - 桌面：Shift+Enter 块内换行，Enter 跳出到下方新建正文块
       if (bType === "code") {
-        if (e.shiftKey) {
+        if (e.shiftKey || e.repeat || Editor.touchDevice()) {
           this.queue.submitImmediate(
             [{ type: "text.insert", blockId: id, offset, text: "\n" }],
             { selBefore: { blockId: id, offset }, caretAfter: { blockId: id, offset: offset + 1 } },
           );
           this.focusBlock(id, offset + 1);
         } else {
-          const newId = uuid();
-          this.queue.submitImmediate(
-            [{ type: "block.insert", id: newId, afterId: id, text: "", blockType: "text" }],
-            { selBefore: { blockId: id, offset }, caretAfter: { blockId: newId, offset: 0 } },
-          );
-          this.focusBlock(newId, 0);
+          this.exitCodeBlock(id, offset);
         }
         return;
       }
@@ -1074,6 +1086,21 @@ export class Editor {
   }
 
   // ------------------------------------------------------------- 结构手势
+
+  /** 跳出代码块：在下方新建空正文块并聚焦（桌面 Enter / 手机「退出」按钮共用） */
+  private exitCodeBlock(id: string, offset: number) {
+    const newId = uuid();
+    this.queue.submitImmediate(
+      [{ type: "block.insert", id: newId, afterId: id, text: "", blockType: "text" }],
+      { selBefore: { blockId: id, offset }, caretAfter: { blockId: newId, offset: 0 } },
+    );
+    this.focusBlock(newId, 0);
+  }
+
+  /** 触摸设备（无 hover + 粗指针）：手机/平板上虚拟键盘通常无法输入 Shift+Enter */
+  static touchDevice(): boolean {
+    return typeof matchMedia === "function" && matchMedia("(hover: none) and (pointer: coarse)").matches;
+  }
 
   private splitAt(id: string, offset: number, newType: BlockType) {
     const text = this.model.visibleText(id);

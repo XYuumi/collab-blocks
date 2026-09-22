@@ -12,6 +12,7 @@ import type { IncomingMessage } from "node:http";
 import {
   LOCK_TTL_MS,
   PRESENCE_TIMEOUT_MS,
+  HELP_DOC_ID,
   type ClientMsg,
   type DocRole,
   type ServerMsg,
@@ -195,10 +196,13 @@ export class Hub {
           user = guest.user;
           token = guest.token;
         }
-        // 3) 角色：只读链接 → viewer；"仅创建者可编辑"开启时非 owner（协作者除外）→ viewer
+        // 3) 角色：内置说明文档 → 任何人一律只读；只读链接 → viewer；
+        //    "仅创建者可编辑"开启时非 owner（协作者除外）→ viewer
         const meta = this.store.getDocMeta(msg.docId);
         let role: DocRole;
-        if (msg.mode === "view") {
+        if (msg.docId === HELP_DOC_ID) {
+          role = "viewer";
+        } else if (msg.mode === "view") {
           role = "viewer";
         } else if (meta?.ownerId && meta.enforceOwnerEdit && meta.ownerId !== user.id) {
           role = this.store.isCollaborator(msg.docId, user.id) ? "editor" : "viewer";

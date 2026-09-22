@@ -12,6 +12,8 @@
 export const PROTOCOL = 1;
 /** 内置示例文档 id（无归属，所有人可见；兼容旧版单文档） */
 export const DOC_ID = "doc-1";
+/** 内置功能说明文档 id（无归属，所有人可见；服务端强制只读） */
+export const HELP_DOC_ID = "doc-help";
 
 /** 每多少个版本落一个快照 */
 export const SNAPSHOT_EVERY = 50;
