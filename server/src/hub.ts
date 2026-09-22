@@ -31,6 +31,8 @@ interface Session {
   engine: DocEngine;
   role: DocRole;
   lastSeen: number;
+  /** 探活 ping 发出时间（0 = 当前不在探活中） */
+  pingAt: number;
   ready: boolean;
   locks: Set<string>;
   /** 限流窗口 */
@@ -59,11 +61,18 @@ export class Hub {
   private sessions = new Map<WebSocket, Session>();
   private locks = new Map<string, LockEntry>(); // `${docId}:${blockId}` → 锁条目
   private sweeper: NodeJS.Timeout | null = null;
+  /** 存活判定的空闲阈值（可注入：测试用短值）；超时后进入 ping 探活而非直接终止 */
+  private readonly presenceTimeoutMs: number;
+  /** 清扫间隔（可注入）。须远小于 presenceTimeoutMs，否则活连接的 pong 间隔可能超过 2×阈值被误杀 */
+  private readonly sweepIntervalMs: number;
 
   constructor(
     private store: Store,
     private docs: DocManager,
+    opts?: { presenceTimeoutMs?: number; sweepIntervalMs?: number },
   ) {
+    this.presenceTimeoutMs = opts?.presenceTimeoutMs ?? PRESENCE_TIMEOUT_MS;
+    this.sweepIntervalMs = opts?.sweepIntervalMs ?? 1000;
     // 锁检查注入各文档引擎（按 docId 作用域查询本 Hub 的锁表）
     docs.lockChecker = (docId, blockId, userId) => {
       const l = this.locks.get(this.lockKey(docId, blockId));
@@ -79,7 +88,7 @@ export class Hub {
       }
       this.onConnection(ws);
     });
-    this.sweeper = setInterval(() => this.sweep(), 1000);
+    this.sweeper = setInterval(() => this.sweep(), this.sweepIntervalMs);
   }
 
   close() {
@@ -133,12 +142,20 @@ export class Hub {
       engine: null as unknown as DocEngine,
       role: "viewer",
       lastSeen: Date.now(),
+      pingAt: 0,
       ready: false,
       locks: new Set(),
       rateWindowStart: Date.now(),
       rateCount: 0,
     };
     this.sessions.set(ws, session);
+
+    // 探活 pong：客户端收到 ping 会按 RFC 6455 自动回 pong —— 回来即证明连接活着
+    //（修复：饱和积压时 lastSeen 随消息处理滞后，曾被误判超时终止活连接）
+    ws.on("pong", () => {
+      session.lastSeen = Date.now();
+      session.pingAt = 0;
+    });
 
     ws.on("message", (data) => {
       const now = Date.now();
@@ -372,6 +389,13 @@ export class Hub {
     }
   }
 
+  /**
+   * 两段式存活判定：
+   * 1. 空闲超过 presenceTimeoutMs → 发探活 ping（而不是直接杀）。
+   *    lastSeen 在消息/pong 被处理时才更新——服务端积压时它会滞后于真实的
+   *    TCP 活性，直接按它终止会误杀活连接（压测饱和场景实测发生过）。
+   * 2. 探活后仍无任何响应（再等一个周期，累计 2×超时）→ terminate。
+   */
   private sweep() {
     const now = Date.now();
     for (const [key, l] of this.locks) {
@@ -385,8 +409,18 @@ export class Hub {
       }
     }
     for (const [ws, s] of this.sessions) {
-      if (now - s.lastSeen > PRESENCE_TIMEOUT_MS) {
-        ws.terminate();
+      const idle = now - s.lastSeen;
+      if (idle > this.presenceTimeoutMs * 2) {
+        ws.terminate(); // 两轮无响应：确认死亡
+        continue;
+      }
+      if (idle > this.presenceTimeoutMs && s.pingAt + this.presenceTimeoutMs <= now) {
+        s.pingAt = now;
+        try {
+          ws.ping();
+        } catch {
+          /* socket 已坏：下一轮按两倍超时终止 */
+        }
       }
     }
   }

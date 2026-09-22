@@ -38,7 +38,7 @@ function readToken(req: Request): string {
   return (req.body as { token?: string } | undefined)?.token ?? "";
 }
 
-export function buildServer(dbPath?: string): AppServer {
+export function buildServer(dbPath?: string, hubOpts?: { presenceTimeoutMs?: number; sweepIntervalMs?: number }): AppServer {
   const store = new Store(dbPath ?? undefined, { migrateLegacy: !dbPath });
   const docs = new DocManager(store);
 
@@ -72,7 +72,7 @@ export function buildServer(dbPath?: string): AppServer {
   docs.preload(seedHelpDoc(HELP_DOC_ID));
   store.setDocTitle(HELP_DOC_ID, "功能说明（只读）");
 
-  const hub = new Hub(store, docs);
+  const hub = new Hub(store, docs, hubOpts);
 
   const app = express();
   app.use("/api/auth", express.json({ limit: "16kb" }));

@@ -9,7 +9,7 @@
 [![CI](https://github.com/XYuumi/collab-blocks/actions/workflows/ci.yml/badge.svg)](https://github.com/XYuumi/collab-blocks/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-339933)
-![Tests](https://img.shields.io/badge/tests-52%20unit%20%2B%2010%20E2E-2ea043)
+![Tests](https://img.shields.io/badge/tests-54%20unit%20%2B%2010%20E2E-2ea043)
 [![在线预览](https://img.shields.io/badge/在线预览-点击访问-2ea043)](http://45.125.46.14:28365)
 
 **在线预览**：<http://45.125.46.14:28365>（部署于 Linux 宝塔环境，手机/桌面均可访问；注册即可体验多人协同）
@@ -40,7 +40,7 @@
 | 文档与权限 | 多文档管理、编辑/只读链接双轨分享、三档权限（开放/登录可编辑/受限）、协作者名单、权限申请审批、用户注册登录、回收站（7 天恢复） |
 | 编辑体验 | 块类型（标题/列表/待办/代码/图片）、`/` 菜单、Markdown 快捷输入、块拖拽排序、多选块批量操作、图片粘贴（自动压缩）、全文搜索、大纲导航、快照恢复与对比、四格式导出 + .md/.txt 导入、文档模板、代码块桌面/手机双套换行手势 |
 | 协作感知 | 块级评论线程（SQLite 永久存储）、@提及、桌面通知、未读角标、在线用户列表、连接/版本/待同步状态栏 |
-| 工程质量 | 52 个单元测试 + 10 项 E2E 断言、GitHub Actions CI、每次提交即落盘（SQLite）、明暗主题、手机响应式、大文档虚拟滚动 |
+| 工程质量 | 54 个单元测试 + 10 项 E2E 断言、GitHub Actions CI、每次提交即落盘（SQLite）、明暗主题、手机响应式、大文档虚拟滚动、[并发压测报告](docs/08-性能压测报告.md)（50 人同文档编辑舒适区 / 千人级在线） |
 
 ---
 
@@ -61,7 +61,8 @@ npm start          # → http://localhost:28365
 
 ```bash
 npm run dev        # 开发模式：Vite 热更新（5173），代理 /ws /api 到 3000
-npm test           # 52 个单元测试
+npm test           # 54 个单元测试
+node loadtest.mjs  # 并发压测（需先起独立实例，见 docs/08）
 npm run test:e2e   # E2E：本机 Chrome 双开 10 项断言
 ```
 
@@ -134,6 +135,7 @@ Tx  = { txId, baseVersion, ops[] }                    // 原子提交/幂等/撤
 | 05 | [设计自问自答](docs/05-设计自问自答.md) | 35 个设计决策的完整思考 |
 | 06 | [审查报告](docs/06-审查报告.md) | 十六轮迭代的 bug 清单与修复 |
 | 07 | [技术选型对比](docs/07-技术选型对比.md) | 原生 vs 框架 vs TipTap+Yjs |
+| 08 | [性能压测报告](docs/08-性能压测报告.md) | 500 连接/50 人并发实测、瓶颈归因、探活 bug 修复 |
 
 ---
 
