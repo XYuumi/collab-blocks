@@ -254,11 +254,11 @@ body {
 .block--code + .block--code {
   margin-top: 12px;
 }
-/* 代码块「退出」按钮：右上角小控件；桌面悬停显示，触摸常显 */
+/* 代码块「退出」按钮：块内右上角，堆叠在评论入口下方；桌面悬停显示，触摸常显 */
 .block-code-exit {
   position: absolute;
   right: 8px;
-  top: 6px;
+  top: 26px;
   z-index: 6;
   padding: 2px 10px;
   font-size: 11px;
@@ -1572,19 +1572,20 @@ html.dark .offline-banner {
   border-color: var(--accent);
   color: var(--accent);
 }
-/* 块评论入口按钮（悬停出现在把手下方）：与计数气泡并存时只留气泡 */
+/* 块评论入口按钮：块内右上角小徽标（悬停区域内，不压文本/勾选框）；
+   与计数气泡并存时只留气泡 */
 .block-comment-btn {
   position: absolute;
-  left: -26px;
-  top: 30px;
-  width: 18px;
+  right: 6px;
+  top: 2px;
   height: 20px;
+  padding: 0 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  background: none;
-  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
   font-size: 11px;
   line-height: 1;
   color: var(--text-dim);
@@ -1592,14 +1593,16 @@ html.dark .offline-banner {
   opacity: 0;
   transition: opacity 0.12s;
   user-select: none;
+  touch-action: manipulation;
   z-index: 6;
 }
 .block:hover .block-comment-btn {
-  opacity: 0.55;
+  opacity: 0.75;
 }
 .block-comment-btn:hover {
   opacity: 1 !important;
   color: var(--accent);
+  border-color: var(--accent);
 }
 .block:has(.block-comments-chip) .block-comment-btn {
   display: none;
@@ -2102,19 +2105,22 @@ html.dark .comment-mention.me {
 
 /* ---------------------------------------------------------------- 触摸设备（无 hover） */
 @media (hover: none) {
-  /* 评论入口常显（悬停不可用），并加大触控目标 */
+  /* 评论入口/代码块退出常显（悬停不可用） */
   .block-comment-btn {
-    opacity: 0.4;
-    left: -12px;
-    top: 2px;
-    width: 24px;
-    height: 24px;
-    font-size: 13px;
-    touch-action: manipulation;
+    opacity: 0.55;
   }
   .block-comment-btn:active {
     opacity: 1;
     color: var(--accent);
+    border-color: var(--accent);
+  }
+  .block-code-exit {
+    opacity: 0.6;
+  }
+  .block-code-exit:active {
+    opacity: 1;
+    color: var(--accent);
+    border-color: var(--accent);
   }
   /* HTML5 拖拽在触摸端不可用：隐藏把手，避免透明元素拦截左侧点按 */
   .block-drag-handle {
@@ -2124,17 +2130,5 @@ html.dark .comment-mention.me {
   .sel-toolbar {
     max-width: calc(100vw - 20px);
     flex-wrap: wrap;
-  }
-}
-
-/* 触摸设备：代码块「退出」按钮常显（回车已用作块内换行） */
-@media (hover: none) {
-  .block-code-exit {
-    opacity: 0.6;
-  }
-  .block-code-exit:active {
-    opacity: 1;
-    color: var(--accent);
-    border-color: var(--accent);
   }
 }

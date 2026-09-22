@@ -5,7 +5,7 @@
 import { getToken, openAuthModal, logout } from "./auth";
 import { markdownToBlocks } from "./markdown";
 import { safeStorage } from "./util";
-import { uuid } from "@shared/protocol";
+import { DOC_ID, HELP_DOC_ID, uuid } from "@shared/protocol";
 
 interface DocMeta {
   docId: string;
@@ -109,8 +109,8 @@ export async function mountHome(root: HTMLElement) {
         <p class="home-hero-sub">基于块结构的协同文档：像腾讯文档一样分享链接实时协作，<br>底层是一套自研的同步协议（版本 + 块级 CAS，不依赖 OT/CRDT）。</p>
         <div class="home-hero-actions">
           <button class="btn home-cta">免费开始使用</button>
-          <a class="btn" href="/d/doc-1">🎮 演示文档</a>
-          <a class="btn" href="/d/doc-help">📖 功能说明（只读）</a>
+          <a class="btn" href="/d/${DOC_ID}">🎮 演示文档</a>
+          <a class="btn" href="/d/${HELP_DOC_ID}">📖 功能说明（只读）</a>
         </div>
         <div class="home-hero-tips">
           <div class="home-hero-tip">

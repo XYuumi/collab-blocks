@@ -42,23 +42,28 @@ export function buildServer(dbPath?: string): AppServer {
   const store = new Store(dbPath ?? undefined, { migrateLegacy: !dbPath });
   const docs = new DocManager(store);
 
-  // 内置演示文档（无归属，所有人可见）：旧库的旧版种子 → 整篇升级为全功能演示；
-  // 已被用户改动过（标题不同）则保持原样
+  // 内置演示文档（无归属，所有人可见）：旧库旧版种子 / 旧版演示 → 整篇升级为最新演示；
+  // 用户改过标题的保持原样；升级判定锚点 = 种子里的版本化块 id（demo-comments-v2）
   let sampleEngine: DocEngine;
   {
     const meta0 = store.getDocMeta(DOC_ID);
     let demo = store.loadDoc(DOC_ID);
-    if (!demo || (meta0 && (meta0.title === "未命名文档" || meta0.title === OLD_DEMO_TITLE))) {
+    const staleSeed =
+      !demo ||
+      (meta0 && (meta0.title === "未命名文档" || meta0.title === OLD_DEMO_TITLE)) ||
+      (meta0?.title === DEMO_DOC_TITLE && !demo.blocks.some((b) => b.id === "demo-comments-v2"));
+    if (staleSeed) {
       demo = seedDoc(DOC_ID);
+      store.deleteSeedComments(DOC_ID); // 旧锚点上的系统评论一并清理，避免悬空线程
       sampleEngine = docs.preload(demo);
       store.setDocTitle(DOC_ID, DEMO_DOC_TITLE);
     } else {
-      sampleEngine = docs.preload(demo);
+      sampleEngine = docs.preload(demo!);
     }
     // 示例评论：让 💬 气泡在演示文档里开箱可见（仅首次）
-    if (store.listComments(DOC_ID).length === 0 && demo.blocks.some((b) => b.id === "demo-comments")) {
-      store.addComment(DOC_ID, "demo-comments", { id: "system", username: "系统", color: "#6366f1" },
-        "欢迎试用评论功能：点左侧 💬 回复我，输入 @对方名字 可以提及（对方会收到通知）。评论永久存储，重启不丢。");
+    if (store.listComments(DOC_ID).length === 0 && demo!.blocks.some((b) => b.id === "demo-comments-v2")) {
+      store.addComment(DOC_ID, "demo-comments-v2", { id: "system", username: "系统", color: "#6366f1" },
+        "欢迎试用评论功能：点右上角 💬 回复我，输入 @对方名字 可以提及（对方会收到通知）。评论永久存储，重启不丢。");
     }
   }
 

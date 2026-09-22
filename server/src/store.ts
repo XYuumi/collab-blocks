@@ -496,6 +496,11 @@ export class Store {
     };
   }
 
+  /** 删除系统种子评论（演示文档种子升级时清理旧锚点上的评论） */
+  deleteSeedComments(docId: string) {
+    this.db.prepare("DELETE FROM comments WHERE doc_id = ? AND user_id = 'system'").run(docId);
+  }
+
   listComments(docId: string): import("../../shared/protocol").CommentData[] {
     return (
       this.db
@@ -641,8 +646,8 @@ export function seedDoc(docId: string): DocState {
       mk("demo-image", "图片块：粘贴或拖入图片自动压缩", "image", undefined, DEMO_IMAGE_SRC),
       mk("demo-h2-collab", "② 多人协同", "h2"),
       mk(
-        "demo-comments",
-        "块级评论：悬停本块左侧点 💬 可新建评论线程（下方已有一条示例评论）；评论支持 @提及 和桌面通知，全部永久存储在服务端 SQLite 数据库，重启不丢。",
+        "demo-comments-v2",
+        "块级评论：悬停本块右上角点 💬 可新建评论线程（下方已有一条示例评论）；评论支持 @提及 和桌面通知，全部永久存储在服务端 SQLite 数据库，重启不丢。",
       ),
       mk("demo-presence", "右上角是在线用户列表，实时显示谁在编辑；底部状态栏显示连接状态、版本与待同步事务。"),
       mk("demo-h2-tools", "③ 搜索 / 大纲 / 快照 / 导出", "h2"),

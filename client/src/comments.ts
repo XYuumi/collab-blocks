@@ -257,7 +257,7 @@ export class Comments {
     if (threads.size === 0 && !this.openBlockId) {
       const empty = document.createElement("div");
       empty.className = "comments-empty";
-      empty.textContent = "暂无评论。悬停块左侧点击 💬 即可对该块发表评论（触摸设备按钮常显）。";
+      empty.textContent = "暂无评论。悬停块右上角点击 💬 即可对该块发表评论（触摸设备按钮常显）。";
       body.appendChild(empty);
       return;
     }

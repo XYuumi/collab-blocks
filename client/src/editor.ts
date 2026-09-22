@@ -554,7 +554,7 @@ export class Editor {
       wrap.appendChild(handle);
     }
 
-    // 评论入口（悬停出现在把手下方；触摸设备常显）：空块也能发起首条评论
+    // 评论入口（块内右上角徽标，悬停显示；触摸设备常显）：空块也能发起首条评论
     if (!this.readOnly && this.hooks.onOpenComments) {
       const cbtn = document.createElement("button");
       cbtn.type = "button";
@@ -1089,6 +1089,7 @@ export class Editor {
 
   /** 跳出代码块：在下方新建空正文块并聚焦（桌面 Enter / 手机「退出」按钮共用） */
   private exitCodeBlock(id: string, offset: number) {
+    if (this.readOnly) return;
     const newId = uuid();
     this.queue.submitImmediate(
       [{ type: "block.insert", id: newId, afterId: id, text: "", blockType: "text" }],
@@ -1226,24 +1227,44 @@ export class Editor {
     if (caret === null) return;
     const raw = e.clipboardData?.getData("text/plain");
     if (!raw) return;
+    // 块内选区：粘贴应替换选中内容（原生行为被 preventDefault 接管后需手动删除）
+    const selInfo = this.currentSelectionInfo();
+    const selRange =
+      selInfo && selInfo.blockId === id && selInfo.focusOffset !== undefined && selInfo.focusOffset > selInfo.offset
+        ? { start: selInfo.offset, end: selInfo.focusOffset }
+        : null;
     // 代码块：多行文本整体并入块内（保留换行符），与其他块类型按行拆块的行为区分
     if (this.model.block(id)?.type === "code") {
       const text = raw.replace(/\r\n?/g, "\n");
-      this.queue.submitImmediate(
-        [{ type: "text.insert", blockId: id, offset: caret, text }],
-        { selBefore: { blockId: id, offset: caret }, caretAfter: { blockId: id, offset: caret + text.length } },
-      );
-      this.focusBlock(id, caret + text.length);
+      const at = selRange ? selRange.start : caret;
+      const ops: Op[] = [];
+      if (selRange) {
+        const seg = this.model.visibleText(id).slice(selRange.start, selRange.end);
+        ops.push({ type: "text.delete", blockId: id, offset: selRange.start, length: seg.length, text: seg });
+      }
+      ops.push({ type: "text.insert", blockId: id, offset: at, text });
+      this.queue.submitImmediate(ops, {
+        selBefore: { blockId: id, offset: caret },
+        caretAfter: { blockId: id, offset: at + text.length },
+      });
+      this.focusBlock(id, at + text.length);
       return;
     }
     const lines = raw.replace(/\r\n?/g, "\n").split("\n");
-    const curText = this.model.visibleText(id);
-    const tail = curText.slice(caret);
+    const at = selRange ? selRange.start : caret;
+    const curText = selRange
+      ? this.model.visibleText(id).slice(0, selRange.start) + this.model.visibleText(id).slice(selRange.end)
+      : this.model.visibleText(id);
+    const tail = curText.slice(at);
     const ops: Op[] = [];
-    ops.push({ type: "text.insert", blockId: id, offset: caret, text: lines[0] });
+    if (selRange) {
+      const seg = this.model.visibleText(id).slice(selRange.start, selRange.end);
+      ops.push({ type: "text.delete", blockId: id, offset: selRange.start, length: seg.length, text: seg });
+    }
+    ops.push({ type: "text.insert", blockId: id, offset: at, text: lines[0] });
     let anchor = id;
     let lastId = id;
-    let lastLen = curText.slice(0, caret).length + lines[0].length;
+    let lastLen = curText.slice(0, at).length + lines[0].length;
     for (let i = 1; i < lines.length; i++) {
       const nid = uuid();
       ops.push({ type: "block.insert", id: nid, afterId: anchor, text: lines[i] });
